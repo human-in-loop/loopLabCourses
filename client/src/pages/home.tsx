@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import CourseCard from "@/components/course-card";
 import EmailSignupModal from "@/components/email-signup-modal";
+import VerificationBanner from "@/components/VerificationBanner";
 import { Course } from "@shared/schema";
 import logoPath from "@assets/logo_1754607126595.png";
 
@@ -11,6 +12,11 @@ export default function Home() {
   
   const { data: courses, isLoading } = useQuery<Course[]>({
     queryKey: ["/api/courses"],
+  });
+
+  const { data: user } = useQuery({
+    queryKey: ["/api/auth/me"],
+    retry: false,
   });
 
   const toggleFAQ = (faqId: string) => {
@@ -82,6 +88,11 @@ export default function Home() {
       {/* Courses Section */}
       <section id="courses" className="py-20 px-4">
         <div className="max-w-7xl mx-auto">
+          {/* Show verification banner for authenticated users */}
+          {user?.user && (
+            <VerificationBanner user={user.user} />
+          )}
+          
           <motion.div 
             className="text-center mb-16"
             initial={{ opacity: 0, y: 20 }}

@@ -29,7 +29,7 @@ export default function Auth() {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({
         title: "Account created successfully!",
-        description: "You will receive course access within 2 days of verification.",
+        description: data.message || "Please check your email to verify your account.",
       });
       setLocation("/");
     },

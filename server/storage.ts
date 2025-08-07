@@ -5,9 +5,10 @@ export interface IStorage {
   // User management
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  createUser(user: InsertUser, verificationToken?: string): Promise<User>;
   updateUserActivity(id: string): Promise<void>;
   verifyUser(id: string): Promise<void>;
+  verifyUserByToken(token: string): Promise<User | null>;
   getUnverifiedUsers(): Promise<User[]>;
   
   // Course management
@@ -85,12 +86,15 @@ export class MemStorage implements IStorage {
     return Array.from(this.users.values()).find(user => user.email === email);
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async createUser(insertUser: InsertUser, verificationToken?: string): Promise<User> {
     const id = randomUUID();
+    const tokenExpiry = verificationToken ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null; // 24 hours
     const user: User = {
       ...insertUser,
       id,
       isVerified: false,
+      verificationToken: verificationToken || null,
+      verificationTokenExpiry: tokenExpiry,
       lastActivity: new Date(),
       createdAt: new Date(),
     };
@@ -110,8 +114,28 @@ export class MemStorage implements IStorage {
     const user = this.users.get(id);
     if (user) {
       user.isVerified = true;
+      user.verificationToken = null;
+      user.verificationTokenExpiry = null;
       this.users.set(id, user);
     }
+  }
+
+  async verifyUserByToken(token: string): Promise<User | null> {
+    const user = Array.from(this.users.values()).find(
+      u => u.verificationToken === token && 
+           u.verificationTokenExpiry && 
+           u.verificationTokenExpiry > new Date()
+    );
+    
+    if (user) {
+      user.isVerified = true;
+      user.verificationToken = null;
+      user.verificationTokenExpiry = null;
+      this.users.set(user.id, user);
+      return user;
+    }
+    
+    return null;
   }
 
   async getUnverifiedUsers(): Promise<User[]> {
