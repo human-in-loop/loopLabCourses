@@ -1,0 +1,165 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(240, 31%, 6%);
+  --foreground: hsl(0, 0%, 100%);
+  --card: hsl(240, 19%, 12%);
+  --card-foreground: hsl(0, 0%, 100%);
+  --popover: hsl(240, 19%, 12%);
+  --popover-foreground: hsl(0, 0%, 100%);
+  --primary: hsl(262, 83%, 58%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(24, 95%, 53%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --muted: hsl(240, 11%, 20%);
+  --muted-foreground: hsl(240, 5%, 65%);
+  --accent: hsl(262, 83%, 58%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(240, 11%, 20%);
+  --input: hsl(240, 11%, 20%);
+  --ring: hsl(262, 83%, 58%);
+  --chart-1: hsl(262, 83%, 58%);
+  --chart-2: hsl(173, 58%, 39%);
+  --chart-3: hsl(24, 95%, 53%);
+  --chart-4: hsl(147, 78%, 42%);
+  --chart-5: hsl(342, 75%, 51%);
+  --sidebar-background: hsl(240, 19%, 12%);
+  --sidebar-foreground: hsl(0, 0%, 100%);
+  --sidebar-primary: hsl(262, 83%, 58%);
+  --sidebar-primary-foreground: hsl(0, 0%, 100%);
+  --sidebar-accent: hsl(240, 11%, 20%);
+  --sidebar-accent-foreground: hsl(0, 0%, 100%);
+  --sidebar-border: hsl(240, 11%, 20%);
+  --sidebar-ring: hsl(262, 83%, 58%);
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'Fira Code', monospace;
+  --radius: 1rem;
+  
+  /* Loop Lab Custom Colors */
+  --loop-purple: hsl(262, 83%, 58%);
+  --loop-orange: hsl(24, 95%, 53%);
+  --loop-dark: hsl(240, 31%, 6%);
+  --loop-surface: hsl(240, 19%, 12%);
+  --loop-accent: hsl(173, 58%, 39%);
+}
+
+.dark {
+  --background: hsl(240, 31%, 6%);
+  --foreground: hsl(0, 0%, 100%);
+  --card: hsl(240, 19%, 12%);
+  --card-foreground: hsl(0, 0%, 100%);
+  --popover: hsl(240, 19%, 12%);
+  --popover-foreground: hsl(0, 0%, 100%);
+  --primary: hsl(262, 83%, 58%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(24, 95%, 53%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --muted: hsl(240, 11%, 20%);
+  --muted-foreground: hsl(240, 5%, 65%);
+  --accent: hsl(262, 83%, 58%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(240, 11%, 20%);
+  --input: hsl(240, 11%, 20%);
+  --ring: hsl(262, 83%, 58%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .glassmorphism {
+    background: rgba(139, 92, 246, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(262, 83%, 58%), hsl(24, 95%, 53%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes glow {
+  from { 
+    box-shadow: 0 0 20px hsl(262, 83%, 58%);
+  }
+  to { 
+    box-shadow: 0 0 30px hsl(24, 95%, 53%), 0 0 40px hsl(24, 95%, 53%);
+  }
+}
+
+.loop-purple {
+  color: hsl(262, 83%, 58%);
+}
+
+.loop-orange {
+  color: hsl(24, 95%, 53%);
+}
+
+.bg-loop-dark {
+  background-color: hsl(240, 31%, 6%);
+}
+
+.bg-loop-surface {
+  background-color: hsl(240, 19%, 12%);
+}
+
+.bg-loop-purple {
+  background-color: hsl(262, 83%, 58%);
+}
+
+.bg-loop-orange {
+  background-color: hsl(24, 95%, 53%);
+}
+
+.text-loop-purple {
+  color: hsl(262, 83%, 58%);
+}
+
+.text-loop-orange {
+  color: hsl(24, 95%, 53%);
+}
+
+.text-loop-accent {
+  color: hsl(173, 58%, 39%);
+}
+
+.border-loop-purple {
+  border-color: hsl(262, 83%, 58%);
+}
+
+.bg-gradient-loop {
+  background: linear-gradient(135deg, hsl(262, 83%, 58%), hsl(24, 95%, 53%));
+}
