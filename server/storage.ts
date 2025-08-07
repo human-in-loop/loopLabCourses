@@ -195,4 +195,13 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+import { MongoStorage } from "./mongo-storage";
+
+// Use MongoDB storage if available, fallback to memory storage
+const useMongoStorage = process.env.MONGODB_URL ? true : false;
+
+export const storage: IStorage = useMongoStorage 
+  ? new MongoStorage() 
+  : new MemStorage();
+
+console.log(`Using ${useMongoStorage ? 'MongoDB' : 'in-memory'} storage`);
