@@ -34,13 +34,16 @@ Preferred communication style: Simple, everyday language.
 
 ## Authentication and Authorization
 - **Authentication Strategy**: Session-based authentication (no passwords - simplified email-only signup)
-- **User Verification**: Manual verification system where users are granted access within 2 days
+- **User Verification**: Automated email verification system with token-based validation (24-hour expiry)
+- **Email Service**: Gmail SMTP integration for verification and welcome emails (free tier: 500 emails/day)
 - **Access Control**: Course access is controlled through enrollment records with access flags
 - **Session Management**: Server-side sessions stored in PostgreSQL with automatic cleanup
+- **Fallback System**: Manual verification within 2 days if email service unavailable
 
 ## External Dependencies
 - **Database Hosting**: Neon PostgreSQL serverless database
-- **Email Integration**: Placeholder for Google Sheets API integration for user data collection
+- **Email Service**: Gmail SMTP for user verification and notifications (using app passwords)
+- **Email Integration**: Google Sheets API integration for user data collection (placeholder)
 - **Learning Management**: Integration with Moodle platform for course delivery
 - **Development Tools**: Replit-specific plugins for development environment integration
 - **Icon System**: Font Awesome for icons throughout the application
