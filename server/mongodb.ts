@@ -16,10 +16,18 @@ class MongoDB {
     }
 
     try {
-      this.client = new MongoClient(mongoUrl, {
+      // Add database name to URL if not already present
+      const finalUrl = mongoUrl.includes('?') 
+        ? `${mongoUrl}&retryWrites=true&w=majority`
+        : `${mongoUrl}/${dbName}?retryWrites=true&w=majority`;
+
+      this.client = new MongoClient(finalUrl, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 10000,
         family: 4, // Use IPv4, skip trying IPv6
+        tls: true,
+        tlsAllowInvalidCertificates: true, // For Replit environment
+        tlsAllowInvalidHostnames: true,
       });
       await this.client.connect();
       this.db = this.client.db(dbName);
