@@ -9,9 +9,17 @@ export class MongoStorage implements IStorage {
   }
 
   private async initializeCourses() {
+    // Wait up to 10 seconds for MongoDB to connect
+    let retries = 0;
+    const maxRetries = 10;
+    
+    while (!mongoDB.isReady() && retries < maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      retries++;
+    }
+    
     if (!mongoDB.isReady()) {
-      // Retry after MongoDB is connected
-      setTimeout(() => this.initializeCourses(), 1000);
+      console.log('MongoDB not available, courses will be handled by fallback storage');
       return;
     }
 

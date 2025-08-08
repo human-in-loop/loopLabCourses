@@ -16,7 +16,11 @@ class MongoDB {
     }
 
     try {
-      this.client = new MongoClient(mongoUrl);
+      this.client = new MongoClient(mongoUrl, {
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+        family: 4, // Use IPv4, skip trying IPv6
+      });
       await this.client.connect();
       this.db = this.client.db(dbName);
       this.isConnected = true;
@@ -26,6 +30,7 @@ class MongoDB {
       await this.createIndexes();
     } catch (error) {
       console.error('Failed to connect to MongoDB:', error);
+      console.log('Falling back to in-memory storage');
       this.isConnected = false;
     }
   }

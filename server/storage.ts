@@ -197,11 +197,101 @@ export class MemStorage implements IStorage {
 
 import { MongoStorage } from "./mongo-storage";
 
-// Use MongoDB storage if available, fallback to memory storage
-const useMongoStorage = process.env.MONGODB_URL ? true : false;
+// Always try MongoDB first if URL is provided, with graceful fallback
+class HybridStorage implements IStorage {
+  private mongoStorage: MongoStorage | null = null;
+  private memStorage: MemStorage;
+  
+  constructor() {
+    this.memStorage = new MemStorage();
+    if (process.env.MONGODB_URL) {
+      this.mongoStorage = new MongoStorage();
+      console.log('Attempting MongoDB connection with in-memory fallback');
+    } else {
+      console.log('Using in-memory storage (no MongoDB URL provided)');
+    }
+  }
+  
+  private async useStorage(): Promise<IStorage> {
+    if (this.mongoStorage) {
+      // Import mongoDB here to avoid circular dependency
+      const { mongoDB } = await import("./mongodb");
+      if (mongoDB.isReady()) {
+        return this.mongoStorage;
+      }
+    }
+    return this.memStorage;
+  }
 
-export const storage: IStorage = useMongoStorage 
-  ? new MongoStorage() 
-  : new MemStorage();
+  async getUser(id: string): Promise<User | undefined> {
+    const storage = await this.useStorage();
+    return storage.getUser(id);
+  }
 
-console.log(`Using ${useMongoStorage ? 'MongoDB' : 'in-memory'} storage`);
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const storage = await this.useStorage();
+    return storage.getUserByEmail(email);
+  }
+
+  async createUser(user: InsertUser, verificationToken?: string): Promise<User> {
+    const storage = await this.useStorage();
+    return storage.createUser(user, verificationToken);
+  }
+
+  async updateUserActivity(id: string): Promise<void> {
+    const storage = await this.useStorage();
+    return storage.updateUserActivity(id);
+  }
+
+  async verifyUser(id: string): Promise<void> {
+    const storage = await this.useStorage();
+    return storage.verifyUser(id);
+  }
+
+  async verifyUserByToken(token: string): Promise<User | null> {
+    const storage = await this.useStorage();
+    return storage.verifyUserByToken(token);
+  }
+
+  async getUnverifiedUsers(): Promise<User[]> {
+    const storage = await this.useStorage();
+    return storage.getUnverifiedUsers();
+  }
+
+  async getCourses(): Promise<Course[]> {
+    const storage = await this.useStorage();
+    return storage.getCourses();
+  }
+
+  async getCourse(id: string): Promise<Course | undefined> {
+    const storage = await this.useStorage();
+    return storage.getCourse(id);
+  }
+
+  async createEnrollment(enrollment: InsertEnrollment): Promise<Enrollment> {
+    const storage = await this.useStorage();
+    return storage.createEnrollment(enrollment);
+  }
+
+  async getUserEnrollments(userId: string): Promise<Enrollment[]> {
+    const storage = await this.useStorage();
+    return storage.getUserEnrollments(userId);
+  }
+
+  async getCourseEnrollments(courseId: string): Promise<Enrollment[]> {
+    const storage = await this.useStorage();
+    return storage.getCourseEnrollments(courseId);
+  }
+
+  async grantCourseAccess(userId: string, courseId: string): Promise<void> {
+    const storage = await this.useStorage();
+    return storage.grantCourseAccess(userId, courseId);
+  }
+
+  async hasAccess(userId: string, courseId: string): Promise<boolean> {
+    const storage = await this.useStorage();
+    return storage.hasAccess(userId, courseId);
+  }
+}
+
+export const storage: IStorage = new HybridStorage();
