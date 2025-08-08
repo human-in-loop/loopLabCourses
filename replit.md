@@ -10,6 +10,13 @@ Preferred communication style: Simple, everyday language.
 
 # System Architecture
 
+## Data Storage Migration (January 2025)
+- **Migration Complete**: Successfully migrated from in-memory storage to MongoDB
+- **Database**: MongoDB with persistent storage for all user data, courses, and enrollments
+- **Connection**: MongoDB Atlas integration with automatic connection management
+- **Fallback**: Graceful fallback to in-memory storage if MongoDB unavailable
+- **Benefits**: User data, verification tokens, and enrollments now persist across server restarts
+
 ## Frontend Architecture
 - **Framework**: React 18 with TypeScript using Vite as the build tool
 - **Routing**: Wouter for client-side routing (lightweight React router alternative)
@@ -27,10 +34,12 @@ Preferred communication style: Simple, everyday language.
 - **API Design**: RESTful API with consistent JSON responses and error handling middleware
 
 ## Data Storage Solutions
-- **Database**: PostgreSQL with Neon serverless database hosting
-- **ORM**: Drizzle ORM for type-safe database operations
-- **Schema Management**: Drizzle Kit for migrations and schema management
-- **Session Storage**: PostgreSQL-backed session storage for user authentication state
+- **Database**: MongoDB with persistent document storage
+- **Driver**: Official MongoDB Node.js driver with TypeScript support
+- **Storage Interface**: Custom storage abstraction layer with MongoDB and in-memory implementations
+- **Collections**: Users, courses, and enrollments with proper indexing for performance
+- **Session Storage**: Express sessions with in-memory storage (development)
+- **Data Persistence**: All user data, verification tokens, and course enrollments persist across restarts
 
 ## Authentication and Authorization
 - **Authentication Strategy**: Session-based authentication (no passwords - simplified email-only signup)
