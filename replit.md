@@ -35,9 +35,14 @@ Preferred communication style: Simple, everyday language.
 
 ## Data Storage Solutions
 - **Database**: MongoDB with persistent document storage
+- **Database Name**: LoopLabCourses
+- **Collections**: 
+  - `users` - User accounts with email, name, verification status, and TTL for cleanup
+  - `Courses` - Course catalog and details
+  - `enrollments` - User course enrollments and access control
 - **Driver**: Official MongoDB Node.js driver with TypeScript support
-- **Storage Interface**: Custom storage abstraction layer with MongoDB and in-memory implementations
-- **Collections**: Users, courses, and enrollments with proper indexing for performance
+- **Storage Interface**: Hybrid storage with MongoDB primary and in-memory fallback
+- **TTL Policy**: Unverified users automatically deleted after 2 days
 - **Session Storage**: Express sessions with in-memory storage (development)
 - **Data Persistence**: All user data, verification tokens, and course enrollments persist across restarts
 

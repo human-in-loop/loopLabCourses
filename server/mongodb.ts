@@ -8,7 +8,7 @@ class MongoDB {
 
   async connect(): Promise<void> {
     const mongoUrl = process.env.MONGODB_URL;
-    const dbName = process.env.MONGODB_DB_NAME || 'loop-lab-course';
+    const dbName = process.env.MONGODB_DB_NAME || 'LoopLabCourses';
 
     if (!mongoUrl) {
       console.warn('MONGODB_URL not configured. MongoDB connection disabled.');
@@ -43,13 +43,25 @@ class MongoDB {
       await this.db.collection('users').createIndex({ email: 1 }, { unique: true });
       await this.db.collection('users').createIndex({ verificationToken: 1 });
       await this.db.collection('users').createIndex({ verificationTokenExpiry: 1 });
+      
+      // TTL index - automatically delete unverified users after 2 days
+      await this.db.collection('users').createIndex(
+        { createdAt: 1 }, 
+        { 
+          expireAfterSeconds: 172800, // 2 days in seconds
+          partialFilterExpression: { isVerified: false }
+        }
+      );
+
+      // Course indexes (using your collection name)
+      await this.db.collection('Courses').createIndex({ id: 1 }, { unique: true });
 
       // Enrollment indexes
       await this.db.collection('enrollments').createIndex({ userId: 1 });
       await this.db.collection('enrollments').createIndex({ courseId: 1 });
       await this.db.collection('enrollments').createIndex({ userId: 1, courseId: 1 }, { unique: true });
 
-      console.log('MongoDB indexes created successfully');
+      console.log('MongoDB indexes created successfully with TTL for unverified users');
     } catch (error) {
       console.error('Error creating indexes:', error);
     }
@@ -76,7 +88,7 @@ class MongoDB {
   }
 
   getCoursesCollection(): Collection<Course> | null {
-    return this.db ? this.db.collection<Course>('courses') : null;
+    return this.db ? this.db.collection<Course>('Courses') : null;
   }
 
   getEnrollmentsCollection(): Collection<Enrollment> | null {

@@ -73,7 +73,7 @@ export class MongoStorage implements IStorage {
       ];
 
       await coursesCollection.insertMany(courseData);
-      console.log('Initialized courses in MongoDB');
+      console.log('Initialized courses in MongoDB Courses collection');
     } catch (error) {
       console.error('Error initializing courses:', error);
     }
@@ -103,6 +103,7 @@ export class MongoStorage implements IStorage {
     }
 
     const id = randomUUID();
+    const now = new Date();
     const tokenExpiry = verificationToken ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
     
     const user: User = {
@@ -111,11 +112,12 @@ export class MongoStorage implements IStorage {
       isVerified: false,
       verificationToken: verificationToken || null,
       verificationTokenExpiry: tokenExpiry,
-      lastActivity: new Date(),
-      createdAt: new Date(),
+      lastActivity: now,
+      createdAt: now,
     };
 
     await collection.insertOne(user);
+    console.log(`User created in MongoDB: ${user.email} at ${now.toISOString()}`);
     return user;
   }
 
@@ -133,16 +135,21 @@ export class MongoStorage implements IStorage {
     const collection = mongoDB.getUsersCollection();
     if (!collection) return;
 
-    await collection.updateOne(
+    const result = await collection.updateOne(
       { id },
       { 
         $set: { 
           isVerified: true,
           verificationToken: null,
-          verificationTokenExpiry: null
+          verificationTokenExpiry: null,
+          lastActivity: new Date()
         }
       }
     );
+    
+    if (result.modifiedCount > 0) {
+      console.log(`User verified in MongoDB: ${id}`);
+    }
   }
 
   async verifyUserByToken(token: string): Promise<User | null> {
