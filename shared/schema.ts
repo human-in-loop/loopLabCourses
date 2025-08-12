@@ -8,6 +8,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   isVerified: boolean("is_verified").default(false),
+  isAdmin: boolean("is_admin").default(false),
   verificationToken: text("verification_token"),
   verificationTokenExpiry: timestamp("verification_token_expiry"),
   lastActivity: timestamp("last_activity").defaultNow(),
@@ -40,6 +41,27 @@ export const enrollments = pgTable("enrollments", {
   paidAmount: integer("paid_amount"), // Amount paid in cents
 });
 
+export const lessonProgress = pgTable("lesson_progress", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  courseId: varchar("course_id").notNull(),
+  lessonId: varchar("lesson_id").notNull(),
+  completedAt: timestamp("completed_at").defaultNow(),
+});
+
+export const submissions = pgTable("submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  courseId: varchar("course_id").notNull(),
+  projectTitle: text("project_title").notNull(),
+  description: text("description").notNull(),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  grade: integer("grade"), // Grade out of 100
+  feedback: text("feedback"),
+  gradedAt: timestamp("graded_at"),
+  gradedBy: varchar("graded_by"), // Admin user ID
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
   name: true,
@@ -52,6 +74,24 @@ export const insertCourseSchema = createInsertSchema(courses).omit({
 export const insertEnrollmentSchema = createInsertSchema(enrollments).pick({
   userId: true,
   courseId: true,
+});
+
+export const insertLessonProgressSchema = createInsertSchema(lessonProgress).pick({
+  userId: true,
+  courseId: true,
+  lessonId: true,
+});
+
+export const insertSubmissionSchema = createInsertSchema(submissions).pick({
+  userId: true,
+  courseId: true,
+  projectTitle: true,
+  description: true,
+});
+
+export const gradeSubmissionSchema = z.object({
+  grade: z.number().min(0).max(100),
+  feedback: z.string().optional(),
 });
 
 // Payment schemas
@@ -81,6 +121,11 @@ export type InsertCourse = z.infer<typeof insertCourseSchema>;
 export type Course = typeof courses.$inferSelect;
 export type InsertEnrollment = z.infer<typeof insertEnrollmentSchema>;
 export type Enrollment = typeof enrollments.$inferSelect;
+export type InsertLessonProgress = z.infer<typeof insertLessonProgressSchema>;
+export type LessonProgress = typeof lessonProgress.$inferSelect;
+export type InsertSubmission = z.infer<typeof insertSubmissionSchema>;
+export type Submission = typeof submissions.$inferSelect;
+export type GradeSubmission = z.infer<typeof gradeSubmissionSchema>;
 export type PaymentInitiation = z.infer<typeof paymentInitiationSchema>;
 export type PaymentWebhook = z.infer<typeof paymentWebhookSchema>;
 export type CourseCompletion = z.infer<typeof courseCompletionSchema>;

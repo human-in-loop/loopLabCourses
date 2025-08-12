@@ -43,6 +43,35 @@ export default function CoursePlayer() {
     retry: false,
   });
 
+  const { data: progress } = useQuery({
+    queryKey: ["/api/courses", id, "progress"],
+    enabled: !!id && !!user,
+  });
+
+  const completeLesson = useMutation({
+    mutationFn: async (lessonId: string) => {
+      return apiRequest(`/api/lessons/${lessonId}/complete`, {
+        method: "POST",
+        body: JSON.stringify({ courseId: id }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/courses", id, "progress"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/courses", id, "content"] });
+      toast({
+        title: "Lesson Completed",
+        description: "Your progress has been saved.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to mark lesson as complete. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const { data: access, isLoading: accessLoading } = useQuery({
     queryKey: ["/api/courses", id, "access"],
     enabled: !!user && !!id,
@@ -381,6 +410,28 @@ export default function CoursePlayer() {
                       <div className="text-gray-300 leading-relaxed">
                         {currentLesson.content}
                       </div>
+                      {!currentLesson.isCompleted && (
+                        <div className="mt-6 pt-6 border-t border-gray-700">
+                          <Button
+                            onClick={() => completeLesson.mutate(currentLesson.id)}
+                            disabled={completeLesson.isPending}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            data-testid={`button-complete-current-lesson`}
+                          >
+                            {completeLesson.isPending ? (
+                              <>
+                                <i className="fas fa-spinner fa-spin mr-2"></i>
+                                Saving Progress...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-check mr-2"></i>
+                                Mark Lesson Complete
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     {currentLesson.type === 'assignment' && (

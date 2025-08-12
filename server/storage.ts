@@ -1,4 +1,15 @@
-import { type User, type InsertUser, type Course, type Enrollment, type InsertEnrollment } from "@shared/schema";
+import { 
+  type User, 
+  type InsertUser, 
+  type Course, 
+  type Enrollment, 
+  type InsertEnrollment,
+  type LessonProgress,
+  type InsertLessonProgress,
+  type Submission,
+  type InsertSubmission,
+  type GradeSubmission
+} from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -23,17 +34,32 @@ export interface IStorage {
   grantCourseAccess(userId: string, courseId: string): Promise<void>;
   hasAccess(userId: string, courseId: string): Promise<boolean>;
   completeCourse(enrollmentId: string, completedAt: Date, accessExpiresAt: Date): Promise<void>;
+  
+  // Lesson progress tracking
+  recordLessonProgress(progress: InsertLessonProgress): Promise<LessonProgress>;
+  getUserLessonProgress(userId: string, courseId: string): Promise<LessonProgress[]>;
+  
+  // Submission management
+  createSubmission(submission: InsertSubmission): Promise<Submission>;
+  getSubmission(id: string): Promise<Submission | undefined>;
+  getUserSubmissions(userId: string, courseId: string): Promise<Submission[]>;
+  getAllSubmissions(): Promise<Submission[]>;
+  gradeSubmission(id: string, grade: GradeSubmission, gradedBy: string): Promise<Submission | undefined>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private courses: Map<string, Course>;
   private enrollments: Map<string, Enrollment>;
+  private lessonProgress: Map<string, LessonProgress>;
+  private submissions: Map<string, Submission>;
 
   constructor() {
     this.users = new Map();
     this.courses = new Map();
     this.enrollments = new Map();
+    this.lessonProgress = new Map();
+    this.submissions = new Map();
     this.initializeCourses();
   }
 
@@ -94,12 +120,14 @@ export class MemStorage implements IStorage {
   async createUser(insertUser: InsertUser, verificationToken?: string): Promise<User> {
     const id = randomUUID();
     const tokenExpiry = verificationToken ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null; // 24 hours
+    const isAdmin = insertUser.email === 'support@humaninloop.ca'; // Auto-admin for this email
     const user: User = {
       ...insertUser,
       id,
-      isVerified: false,
-      verificationToken: verificationToken || null,
-      verificationTokenExpiry: tokenExpiry,
+      isVerified: isAdmin, // Auto-verify admin
+      isAdmin,
+      verificationToken: isAdmin ? null : (verificationToken || null),
+      verificationTokenExpiry: isAdmin ? null : tokenExpiry,
       lastActivity: new Date(),
       createdAt: new Date(),
     };
@@ -226,6 +254,65 @@ export class MemStorage implements IStorage {
       this.enrollments.set(enrollmentId, enrollment);
     }
   }
+
+  async recordLessonProgress(insertProgress: InsertLessonProgress): Promise<LessonProgress> {
+    const id = randomUUID();
+    const progress: LessonProgress = {
+      ...insertProgress,
+      id,
+      completedAt: new Date(),
+    };
+    this.lessonProgress.set(id, progress);
+    return progress;
+  }
+
+  async getUserLessonProgress(userId: string, courseId: string): Promise<LessonProgress[]> {
+    return Array.from(this.lessonProgress.values()).filter(
+      progress => progress.userId === userId && progress.courseId === courseId
+    );
+  }
+
+  async createSubmission(insertSubmission: InsertSubmission): Promise<Submission> {
+    const id = randomUUID();
+    const submission: Submission = {
+      ...insertSubmission,
+      id,
+      submittedAt: new Date(),
+      grade: null,
+      feedback: null,
+      gradedAt: null,
+      gradedBy: null,
+    };
+    this.submissions.set(id, submission);
+    return submission;
+  }
+
+  async getSubmission(id: string): Promise<Submission | undefined> {
+    return this.submissions.get(id);
+  }
+
+  async getUserSubmissions(userId: string, courseId: string): Promise<Submission[]> {
+    return Array.from(this.submissions.values()).filter(
+      submission => submission.userId === userId && submission.courseId === courseId
+    );
+  }
+
+  async getAllSubmissions(): Promise<Submission[]> {
+    return Array.from(this.submissions.values());
+  }
+
+  async gradeSubmission(id: string, gradeData: GradeSubmission, gradedBy: string): Promise<Submission | undefined> {
+    const submission = this.submissions.get(id);
+    if (submission) {
+      submission.grade = gradeData.grade;
+      submission.feedback = gradeData.feedback || null;
+      submission.gradedAt = new Date();
+      submission.gradedBy = gradedBy;
+      this.submissions.set(id, submission);
+      return submission;
+    }
+    return undefined;
+  }
 }
 
 import { MongoStorage } from "./mongo-storage";
@@ -334,6 +421,41 @@ class HybridStorage implements IStorage {
   async completeCourse(enrollmentId: string, completedAt: Date, accessExpiresAt: Date): Promise<void> {
     const storage = await this.useStorage();
     return storage.completeCourse(enrollmentId, completedAt, accessExpiresAt);
+  }
+
+  async recordLessonProgress(progress: InsertLessonProgress): Promise<LessonProgress> {
+    const storage = await this.useStorage();
+    return storage.recordLessonProgress(progress);
+  }
+
+  async getUserLessonProgress(userId: string, courseId: string): Promise<LessonProgress[]> {
+    const storage = await this.useStorage();
+    return storage.getUserLessonProgress(userId, courseId);
+  }
+
+  async createSubmission(submission: InsertSubmission): Promise<Submission> {
+    const storage = await this.useStorage();
+    return storage.createSubmission(submission);
+  }
+
+  async getSubmission(id: string): Promise<Submission | undefined> {
+    const storage = await this.useStorage();
+    return storage.getSubmission(id);
+  }
+
+  async getUserSubmissions(userId: string, courseId: string): Promise<Submission[]> {
+    const storage = await this.useStorage();
+    return storage.getUserSubmissions(userId, courseId);
+  }
+
+  async getAllSubmissions(): Promise<Submission[]> {
+    const storage = await this.useStorage();
+    return storage.getAllSubmissions();
+  }
+
+  async gradeSubmission(id: string, grade: GradeSubmission, gradedBy: string): Promise<Submission | undefined> {
+    const storage = await this.useStorage();
+    return storage.gradeSubmission(id, grade, gradedBy);
   }
 }
 

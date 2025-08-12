@@ -84,12 +84,25 @@ export default function Header() {
             {user ? (
               <div className="flex items-center space-x-4">
                 <span className="text-sm text-gray-300" data-testid="text-user-name">
-                  Welcome, {user?.user?.name}
+                  Welcome, {user.name}
                 </span>
-                {!user?.user?.isVerified && (
+                {!user.isVerified && (
                   <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full" data-testid="badge-unverified">
                     Pending Verification
                   </span>
+                )}
+                {user.isAdmin && (
+                  <Link href="/admin">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-loop-orange text-loop-orange hover:bg-loop-orange hover:text-white"
+                      data-testid="button-admin"
+                    >
+                      <i className="fas fa-cog mr-2"></i>
+                      Admin
+                    </Button>
+                  </Link>
                 )}
                 <Button
                   variant="ghost"
@@ -141,12 +154,25 @@ export default function Header() {
                   {user ? (
                     <div className="space-y-3">
                       <p className="text-sm text-gray-300" data-testid="text-mobile-user-name">
-                        Welcome, {user?.user?.name}
+                        Welcome, {user.name}
                       </p>
-                      {!user?.user?.isVerified && (
+                      {!user.isVerified && (
                         <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full inline-block" data-testid="badge-mobile-unverified">
                           Pending Verification
                         </span>
+                      )}
+                      {user.isAdmin && (
+                        <Link href="/admin" onClick={() => setIsMobileMenuOpen(false)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full border-loop-orange text-loop-orange hover:bg-loop-orange hover:text-white mb-2"
+                            data-testid="button-mobile-admin"
+                          >
+                            <i className="fas fa-cog mr-2"></i>
+                            Admin Dashboard
+                          </Button>
+                        </Link>
                       )}
                       <Button
                         variant="outline"

@@ -85,3 +85,12 @@ Deployment preference: Firebase deployment over Replit environment.
 - **Course Completion**: Tracking system for course progress and automatic access expiration
 - **Firebase Deployment**: Configured for Firebase hosting and cloud functions
 - **Security**: Webhook signature verification and secure payment processing
+
+## Phase 3: Course Completion and Access Expiration (January 2025)
+- **Lesson Progress Tracking**: Students can mark individual lessons as complete via POST /api/lessons/:id/complete
+- **Progress Persistence**: All lesson completion data stored in database with timestamps
+- **Admin Grading System**: Complete submission management with POST /api/admin/submissions/:id/grade
+- **Automated Course Completion**: When admin grades final submission, course completion is triggered automatically
+- **10-Day Access Expiration**: Upon course completion, access automatically expires 10 days later
+- **Frontend Integration**: Course player includes lesson completion buttons and progress tracking
+- **Database Schema**: Added lessonProgress and submissions tables for comprehensive tracking

@@ -2,7 +2,16 @@ import type { Express } from "express";
 import "@shared/types";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertEnrollmentSchema, paymentInitiationSchema, paymentWebhookSchema, courseCompletionSchema } from "@shared/schema";
+import { 
+  insertUserSchema, 
+  insertEnrollmentSchema, 
+  insertLessonProgressSchema,
+  insertSubmissionSchema,
+  gradeSubmissionSchema,
+  paymentInitiationSchema, 
+  paymentWebhookSchema, 
+  courseCompletionSchema 
+} from "@shared/schema";
 import { z } from "zod";
 import { generateVerificationToken, sendVerificationEmail, sendWelcomeEmail } from "./email";
 import { monerisClient } from "./moneris";
@@ -683,6 +692,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Lesson Progress Tracking Routes
+  app.post("/api/lessons/:id/complete", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const lessonId = req.params.id;
+      const { courseId } = req.body;
+
+      if (!courseId) {
+        return res.status(400).json({ message: "Course ID is required" });
+      }
+
+      // Verify user has access to the course
+      const hasAccess = await storage.hasAccess(req.session.userId, courseId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "No access to this course" });
+      }
+
+      // Check if lesson already completed
+      const existingProgress = await storage.getUserLessonProgress(req.session.userId, courseId);
+      const alreadyCompleted = existingProgress.some(p => p.lessonId === lessonId);
+      
+      if (alreadyCompleted) {
+        return res.json({ message: "Lesson already completed" });
+      }
+
+      // Record lesson progress
+      const progress = await storage.recordLessonProgress({
+        userId: req.session.userId,
+        courseId,
+        lessonId
+      });
+
+      res.json({ progress, message: "Lesson marked as complete" });
+    } catch (error) {
+      console.error("Lesson completion error:", error);
+      res.status(500).json({ message: "Failed to record lesson progress" });
+    }
+  });
+
+  app.get("/api/courses/:courseId/progress", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const courseId = req.params.courseId;
+      const progress = await storage.getUserLessonProgress(req.session.userId, courseId);
+      
+      res.json(progress);
+    } catch (error) {
+      console.error("Progress fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch progress" });
+    }
+  });
+
+  // Submission Management Routes
+  app.post("/api/courses/:courseId/submissions", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const courseId = req.params.courseId;
+      const submissionData = insertSubmissionSchema.parse({
+        ...req.body,
+        userId: req.session.userId,
+        courseId
+      });
+
+      // Verify user has access to the course
+      const hasAccess = await storage.hasAccess(req.session.userId, courseId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "No access to this course" });
+      }
+
+      const submission = await storage.createSubmission(submissionData);
+      res.json(submission);
+    } catch (error) {
+      console.error("Submission creation error:", error);
+      res.status(400).json({ message: "Invalid submission data" });
+    }
+  });
+
+  app.get("/api/courses/:courseId/submissions", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const courseId = req.params.courseId;
+      const submissions = await storage.getUserSubmissions(req.session.userId, courseId);
+      
+      res.json(submissions);
+    } catch (error) {
+      console.error("Submissions fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch submissions" });
+    }
+  });
+
+  // Admin Routes for Grading and Course Management
+  app.get("/api/admin/submissions", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = await storage.getUser(req.session.userId);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const submissions = await storage.getAllSubmissions();
+      res.json(submissions);
+    } catch (error) {
+      console.error("Admin submissions fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch submissions" });
+    }
+  });
+
+  app.post("/api/admin/submissions/:id/grade", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = await storage.getUser(req.session.userId);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const submissionId = req.params.id;
+      const gradeData = gradeSubmissionSchema.parse(req.body);
+
+      const gradedSubmission = await storage.gradeSubmission(submissionId, gradeData, req.session.userId);
+      
+      if (!gradedSubmission) {
+        return res.status(404).json({ message: "Submission not found" });
+      }
+
+      // Check if this completes the course
+      const userEnrollments = await storage.getUserEnrollments(gradedSubmission.userId);
+      const courseEnrollment = userEnrollments.find(e => e.courseId === gradedSubmission.courseId);
+      
+      if (courseEnrollment && !courseEnrollment.completedAt) {
+        // For simplicity, mark course as complete when the submission is graded
+        // In a real system, you'd check if all required activities are completed
+        const completedAt = new Date();
+        const accessExpiresAt = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000); // 10 days
+        
+        await storage.completeCourse(courseEnrollment.id, completedAt, accessExpiresAt);
+        
+        res.json({ 
+          submission: gradedSubmission, 
+          message: "Submission graded and course completed! Access expires in 10 days.",
+          courseCompleted: true,
+          accessExpiresAt
+        });
+      } else {
+        res.json({ 
+          submission: gradedSubmission, 
+          message: "Submission graded successfully" 
+        });
+      }
+    } catch (error) {
+      console.error("Grading error:", error);
+      res.status(400).json({ message: "Failed to grade submission" });
+    }
+  });
+
   // Admin route for verification (would be triggered by cron job)
   app.post("/api/admin/verify-inactive-users", async (req, res) => {
     try {
@@ -702,6 +883,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error verifying users:", error);
       res.status(500).json({ message: "Failed to verify users" });
+    }
+  });
+
+  // Test endpoint to create mock submissions for demo
+  app.post("/api/admin/test/create-submission", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = await storage.getUser(req.session.userId);
+      if (!user?.isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const mockSubmission: InsertSubmission = {
+        enrollmentId: "test-enrollment-1",
+        projectTitle: "AI-Powered Task Manager",
+        description: "A comprehensive task management application built with React and Node.js. Features include real-time collaboration, AI-powered task prioritization, and intelligent scheduling. The app uses modern development practices including TypeScript, automated testing, and CI/CD deployment.",
+        submittedAt: new Date(),
+        gradedAt: null,
+        grade: null,
+        feedback: null,
+      };
+
+      const submission = await storage.createSubmission(mockSubmission);
+      res.json(submission);
+    } catch (error) {
+      console.error("Test submission creation error:", error);
+      res.status(500).json({ message: "Failed to create test submission" });
     }
   });
 
