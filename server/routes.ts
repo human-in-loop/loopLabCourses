@@ -268,6 +268,184 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Check course access
+  app.get("/api/courses/:id/access", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.json({ hasAccess: false, reason: "Not authenticated" });
+      }
+
+      const { id } = req.params;
+      const course = await storage.getCourse(id);
+      
+      if (!course) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+
+      const user = await storage.getUser(req.session.userId);
+      if (!user) {
+        return res.json({ hasAccess: false, reason: "User not found" });
+      }
+
+      // Check email verification for all courses
+      if (!user.isVerified) {
+        return res.json({ hasAccess: false, reason: "Email not verified" });
+      }
+
+      // Check if user has access to this course
+      const hasAccess = await storage.hasAccess(req.session.userId, id);
+      
+      res.json({ 
+        hasAccess,
+        reason: hasAccess ? null : "No enrollment or payment required"
+      });
+    } catch (error) {
+      console.error("Error checking course access:", error);
+      res.status(500).json({ message: "Failed to check course access" });
+    }
+  });
+
+  // Get course content (protected)
+  app.get("/api/courses/:id/content", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { id } = req.params;
+      const course = await storage.getCourse(id);
+      
+      if (!course) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+
+      const user = await storage.getUser(req.session.userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (!user.isVerified) {
+        return res.status(403).json({ message: "Please verify your email to access course content" });
+      }
+
+      // Check if user has access to this course
+      const hasAccess = await storage.hasAccess(req.session.userId, id);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You don't have access to this course" });
+      }
+
+      // Get user's enrollment
+      const enrollments = await storage.getUserEnrollments(req.session.userId);
+      const enrollment = enrollments.find(e => e.courseId === id);
+      
+      if (!enrollment) {
+        return res.status(403).json({ message: "No enrollment found for this course" });
+      }
+
+      // Check if access has expired
+      if (enrollment.accessExpiresAt && new Date() > enrollment.accessExpiresAt) {
+        return res.status(403).json({ message: "Your access to this course has expired" });
+      }
+
+      // Mock course content structure for demonstration
+      const mockContent = {
+        modules: [
+          {
+            id: "module-1",
+            title: "Introduction to Modern Software Development",
+            description: "Get started with AI-assisted coding fundamentals",
+            isCompleted: false,
+            lessons: [
+              {
+                id: "lesson-1-1",
+                title: "Course Overview",
+                type: "video",
+                content: "Welcome to Modern Software Development! This comprehensive course will teach you the latest techniques in AI-assisted development, automated testing, and modern deployment practices.",
+                duration: "15 min",
+                isCompleted: false,
+              },
+              {
+                id: "lesson-1-2",
+                title: "Development Environment Setup",
+                type: "text",
+                content: "Let's set up your development environment with the latest tools and technologies. We'll configure your IDE, install necessary extensions, and set up version control.",
+                isCompleted: false,
+              },
+            ],
+          },
+          {
+            id: "module-2",
+            title: "AI-Assisted Coding",
+            description: "Learn to leverage AI tools for faster development",
+            isCompleted: false,
+            lessons: [
+              {
+                id: "lesson-2-1",
+                title: "Introduction to GitHub Copilot",
+                type: "video",
+                content: "GitHub Copilot is an AI pair programmer that helps you write code faster. Learn how to effectively use AI suggestions and improve your coding workflow.",
+                duration: "20 min",
+                isCompleted: false,
+              },
+              {
+                id: "lesson-2-2",
+                title: "First Coding Assignment",
+                type: "assignment",
+                content: "Create a simple web application using AI assistance. This hands-on project will demonstrate how to leverage AI tools for rapid prototyping and development.",
+                isCompleted: false,
+              },
+            ],
+          },
+        ],
+        progress: 25,
+        enrollmentId: enrollment.id,
+      };
+
+      res.json(mockContent);
+    } catch (error) {
+      console.error("Error fetching course content:", error);
+      res.status(500).json({ message: "Failed to fetch course content" });
+    }
+  });
+
+  // Course completion endpoint
+  app.post("/api/courses/complete", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { enrollmentId } = req.body;
+      if (!enrollmentId) {
+        return res.status(400).json({ message: "Enrollment ID is required" });
+      }
+
+      const enrollment = await storage.getEnrollment(enrollmentId);
+      if (!enrollment) {
+        return res.status(404).json({ message: "Enrollment not found" });
+      }
+
+      if (enrollment.userId !== req.session.userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Mark course as completed and set access expiration (10 days from completion)
+      const completedAt = new Date();
+      const accessExpiresAt = new Date(completedAt.getTime() + (10 * 24 * 60 * 60 * 1000)); // 10 days
+
+      await storage.completeCourse(enrollmentId, completedAt, accessExpiresAt);
+
+      res.json({
+        message: "Course completed successfully!",
+        completedAt,
+        accessExpiresAt,
+      });
+    } catch (error) {
+      console.error("Error completing course:", error);
+      res.status(500).json({ message: "Failed to complete course" });
+    }
+  });
+
   // Enrollment routes
   app.post("/api/enrollments", async (req, res) => {
     try {

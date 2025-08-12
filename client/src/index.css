@@ -22,7 +22,8 @@
   --destructive: hsl(0, 84%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
   --border: hsl(240, 11%, 20%);
-  --input: hsl(240, 11%, 20%);
+  --input: hsl(240, 11%, 15%);
+  --input-foreground: hsl(0, 0%, 95%);
   --ring: hsl(262, 83%, 58%);
   --chart-1: hsl(262, 83%, 58%);
   --chart-2: hsl(173, 58%, 39%);

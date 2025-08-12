@@ -1,5 +1,5 @@
 import { useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import { Course } from "@shared/schema";
@@ -7,17 +7,99 @@ import CourseAccessModal from "@/components/course-access-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
   const [showAccessModal, setShowAccessModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentTicket, setPaymentTicket] = useState<string | null>(null);
+  const { toast } = useToast();
   
   const { data: course, isLoading } = useQuery<Course>({
     queryKey: ["/api/courses", id],
   });
 
+  const { data: user } = useQuery({
+    queryKey: ["/api/auth/me"],
+    retry: false,
+  });
+
+  const { data: access } = useQuery({
+    queryKey: ["/api/courses", id, "access"],
+    enabled: !!user && !!id,
+  });
+
+  // Free course enrollment mutation
+  const enrollMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/enrollments", { courseId: id });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/courses", id, "access"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/enrollments", "my"] });
+      toast({
+        title: "Enrollment successful!",
+        description: data.message || "You now have access to this course.",
+      });
+      setShowAccessModal(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Enrollment failed",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Payment initiation mutation
+  const paymentMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/payments/initiate", { courseId: id });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setPaymentTicket(data.ticket);
+      setShowPaymentModal(true);
+      // Here you would normally integrate with Moneris JS SDK
+      toast({
+        title: "Payment initialized",
+        description: "Redirecting to payment gateway...",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Payment initialization failed",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleEnroll = () => {
-    setShowAccessModal(true);
+    if (!user) {
+      setShowAccessModal(true);
+      return;
+    }
+
+    if (!course) return;
+
+    // Check if course is free or paid
+    if (!course.price || course.price === 0) {
+      // Free course - direct enrollment
+      enrollMutation.mutate();
+    } else {
+      // Paid course - initiate payment
+      paymentMutation.mutate();
+    }
+  };
+
+  const formatPrice = (priceInCents: number | null) => {
+    if (!priceInCents || priceInCents === 0) return "Free";
+    return `$${(priceInCents / 100).toFixed(2)}`;
   };
 
   if (isLoading) {
@@ -85,9 +167,21 @@ export default function CourseDetail() {
           >
             <div className="flex items-center justify-center mb-6">
               <i className={`${getCategoryIcon(course.category)} text-4xl ${getCategoryColor(course.category)} mr-4`}></i>
-              <Badge className="bg-loop-accent/20 text-loop-accent border-loop-accent/30" data-testid="badge-premium">
-                <i className="fas fa-lock mr-1"></i>Premium Course
-              </Badge>
+              <div className="flex items-center gap-3">
+                <Badge className="bg-loop-accent/20 text-loop-accent border-loop-accent/30" data-testid="badge-premium">
+                  <i className="fas fa-lock mr-1"></i>
+                  {course.price && course.price > 0 ? 'Premium Course' : 'Free Course'}
+                </Badge>
+                <Badge 
+                  className={`${course.price && course.price > 0 
+                    ? 'bg-loop-orange/20 text-loop-orange border-loop-orange/30' 
+                    : 'bg-green-600/20 text-green-400 border-green-600/30'
+                  }`}
+                  data-testid="badge-price"
+                >
+                  {formatPrice(course.price)}
+                </Badge>
+              </div>
             </div>
             
             <h1 className="text-4xl md:text-6xl font-bold mb-6 gradient-text" data-testid="text-course-title">
@@ -98,14 +192,32 @@ export default function CourseDetail() {
               {course.description}
             </p>
 
-            <Button
-              onClick={handleEnroll}
-              className="bg-gradient-to-r from-loop-purple to-loop-orange px-8 py-4 rounded-full text-lg font-semibold hover:shadow-lg hover:shadow-loop-purple/25 transform hover:scale-105 transition-all duration-300 animate-glow"
-              data-testid="button-enroll"
-            >
-              <i className="fas fa-rocket mr-2"></i>
-              Enroll Now
-            </Button>
+            <div className="flex items-center gap-4">
+              {access?.hasAccess ? (
+                <Button
+                  onClick={() => window.location.href = `/learn/course/${id}`}
+                  className="bg-gradient-to-r from-green-600 to-green-700 px-8 py-4 rounded-full text-lg font-semibold hover:shadow-lg hover:shadow-green-600/25 transform hover:scale-105 transition-all duration-300"
+                  data-testid="button-access-course"
+                >
+                  <i className="fas fa-play mr-2"></i>
+                  Continue Learning
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleEnroll}
+                  disabled={enrollMutation.isPending || paymentMutation.isPending}
+                  className="bg-gradient-to-r from-loop-purple to-loop-orange px-8 py-4 rounded-full text-lg font-semibold hover:shadow-lg hover:shadow-loop-purple/25 transform hover:scale-105 transition-all duration-300 animate-glow"
+                  data-testid="button-enroll"
+                >
+                  {(enrollMutation.isPending || paymentMutation.isPending) ? (
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                  ) : (
+                    <i className="fas fa-rocket mr-2"></i>
+                  )}
+                  {course.price && course.price > 0 ? `Enroll for ${formatPrice(course.price)}` : 'Enroll for Free'}
+                </Button>
+              )}
+            </div>
           </motion.div>
         </div>
       </section>

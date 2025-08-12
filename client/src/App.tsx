@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/home";
 import CourseDetail from "@/pages/course-detail";
+import CoursePlayer from "@/pages/course-player";
 import Auth from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 import Header from "@/components/layout/header";
@@ -14,7 +15,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/course/:id" component={CourseDetail} />
+      <Route path="/courses/:id" component={CourseDetail} />
+      <Route path="/learn/course/:id" component={CoursePlayer} />
       <Route path="/auth" component={Auth} />
       <Route component={NotFound} />
     </Switch>

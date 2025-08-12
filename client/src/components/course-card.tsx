@@ -46,9 +46,12 @@ export default function CourseCard({ course }: CourseCardProps) {
     >
       <div className="flex items-center justify-between mb-6">
         <i className={`${getCategoryIcon(course.category)} text-3xl ${getCategoryColor(course.category)}`}></i>
-        <Badge className="bg-loop-accent/20 text-loop-accent border-loop-accent/30">
-          <i className="fas fa-lock mr-1"></i>
-          Premium
+        <Badge className={`${course.price && course.price > 0 
+          ? 'bg-loop-orange/20 text-loop-orange border-loop-orange/30' 
+          : 'bg-green-600/20 text-green-400 border-green-600/30'
+        }`}>
+          <i className={`${course.price && course.price > 0 ? 'fas fa-lock' : 'fas fa-gift'} mr-1`}></i>
+          {course.price && course.price > 0 ? `$${(course.price / 100).toFixed(2)}` : 'Free'}
         </Badge>
       </div>
       
@@ -77,7 +80,7 @@ export default function CourseCard({ course }: CourseCardProps) {
         </div>
       </div>
       
-      <Link href={`/course/${course.id}`}>
+      <Link href={`/courses/${course.id}`}>
         <Button 
           className={`w-full bg-gradient-to-r ${getCategoryGradient(course.category)} py-3 rounded-xl font-semibold hover:shadow-lg transition-all duration-300 group-hover:scale-105`}
           data-testid={`button-access-course-${course.id}`}
