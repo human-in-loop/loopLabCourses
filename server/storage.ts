@@ -17,10 +17,12 @@ export interface IStorage {
   
   // Enrollment management
   createEnrollment(enrollment: InsertEnrollment): Promise<Enrollment>;
+  getEnrollment(id: string): Promise<Enrollment | undefined>;
   getUserEnrollments(userId: string): Promise<Enrollment[]>;
   getCourseEnrollments(courseId: string): Promise<Enrollment[]>;
   grantCourseAccess(userId: string, courseId: string): Promise<void>;
   hasAccess(userId: string, courseId: string): Promise<boolean>;
+  completeCourse(enrollmentId: string, completedAt: Date, accessExpiresAt: Date): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -47,7 +49,8 @@ export class MemStorage implements IStorage {
         schedule: "Mon/Fri Lectures",
         moodleUrl: "https://moodle.example.com/course/view.php?id=1",
         isPremium: true,
-        category: "Development"
+        category: "Development",
+        price: 29900 // $299.00 in cents
       },
       {
         id: "ai-agents",
@@ -59,7 +62,8 @@ export class MemStorage implements IStorage {
         schedule: "Self-paced",
         moodleUrl: "https://moodle.example.com/course/view.php?id=2",
         isPremium: true,
-        category: "AI"
+        category: "AI",
+        price: 19900 // $199.00 in cents
       },
       {
         id: "security-testing",
@@ -71,7 +75,8 @@ export class MemStorage implements IStorage {
         schedule: "Weekend Intensive",
         moodleUrl: "https://moodle.example.com/course/view.php?id=3",
         isPremium: true,
-        category: "Security"
+        category: "Security",
+        price: 0 // Free course
       }
     ];
 
@@ -160,9 +165,17 @@ export class MemStorage implements IStorage {
       id,
       hasAccess: false,
       enrolledAt: new Date(),
+      completedAt: null,
+      accessExpiresAt: null,
+      paymentId: null,
+      paidAmount: null,
     };
     this.enrollments.set(id, enrollment);
     return enrollment;
+  }
+
+  async getEnrollment(id: string): Promise<Enrollment | undefined> {
+    return this.enrollments.get(id);
   }
 
   async getUserEnrollments(userId: string): Promise<Enrollment[]> {
@@ -191,7 +204,27 @@ export class MemStorage implements IStorage {
     const enrollment = Array.from(this.enrollments.values()).find(
       e => e.userId === userId && e.courseId === courseId
     );
-    return enrollment?.hasAccess || false;
+    
+    // Check if enrollment exists and has access
+    if (!enrollment?.hasAccess) {
+      return false;
+    }
+    
+    // Check if access has expired
+    if (enrollment.accessExpiresAt && enrollment.accessExpiresAt < new Date()) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  async completeCourse(enrollmentId: string, completedAt: Date, accessExpiresAt: Date): Promise<void> {
+    const enrollment = this.enrollments.get(enrollmentId);
+    if (enrollment) {
+      enrollment.completedAt = completedAt;
+      enrollment.accessExpiresAt = accessExpiresAt;
+      this.enrollments.set(enrollmentId, enrollment);
+    }
   }
 }
 
@@ -291,6 +324,16 @@ class HybridStorage implements IStorage {
   async hasAccess(userId: string, courseId: string): Promise<boolean> {
     const storage = await this.useStorage();
     return storage.hasAccess(userId, courseId);
+  }
+
+  async getEnrollment(id: string): Promise<Enrollment | undefined> {
+    const storage = await this.useStorage();
+    return storage.getEnrollment(id);
+  }
+
+  async completeCourse(enrollmentId: string, completedAt: Date, accessExpiresAt: Date): Promise<void> {
+    const storage = await this.useStorage();
+    return storage.completeCourse(enrollmentId, completedAt, accessExpiresAt);
   }
 }
 

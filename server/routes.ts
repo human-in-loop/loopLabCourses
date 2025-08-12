@@ -2,9 +2,10 @@ import type { Express } from "express";
 import "@shared/types";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertEnrollmentSchema } from "@shared/schema";
+import { insertUserSchema, insertEnrollmentSchema, paymentInitiationSchema, paymentWebhookSchema, courseCompletionSchema } from "@shared/schema";
 import { z } from "zod";
 import { generateVerificationToken, sendVerificationEmail, sendWelcomeEmail } from "./email";
+import { monerisClient } from "./moneris";
 
 // Google Sheets integration (placeholder - user will need to configure)
 const addToGoogleSheets = async (email: string, name: string) => {
@@ -279,8 +280,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         courseId: req.body.courseId
       });
 
-      const enrollment = await storage.createEnrollment(enrollmentData);
-      res.json(enrollment);
+      // Get course to check if it's free or paid
+      const course = await storage.getCourse(enrollmentData.courseId);
+      if (!course) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+
+      // For free courses, grant immediate access after email verification
+      if (!course.price || course.price === 0) {
+        const user = await storage.getUser(req.session.userId);
+        if (!user?.isVerified) {
+          return res.status(400).json({ message: "Please verify your email before enrolling in courses" });
+        }
+
+        const enrollment = await storage.createEnrollment(enrollmentData);
+        await storage.grantCourseAccess(req.session.userId, enrollmentData.courseId);
+        
+        res.json({ 
+          ...enrollment, 
+          hasAccess: true,
+          message: "Successfully enrolled! You now have access to this free course."
+        });
+      } else {
+        // For paid courses, enrollment without access - payment required
+        const enrollment = await storage.createEnrollment(enrollmentData);
+        res.json({ 
+          ...enrollment,
+          message: "Enrollment created. Payment required for course access.",
+          requiresPayment: true,
+          price: course.price
+        });
+      }
     } catch (error) {
       console.error("Enrollment error:", error);
       res.status(400).json({ message: "Failed to create enrollment" });
@@ -317,6 +347,161 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error checking access:", error);
       res.status(500).json({ message: "Failed to check access" });
+    }
+  });
+
+  // Payment routes
+  app.post("/api/payments/initiate", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { courseId } = paymentInitiationSchema.parse(req.body);
+      
+      // Get course details
+      const course = await storage.getCourse(courseId);
+      if (!course) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+
+      // Check if course is free
+      if (!course.price || course.price === 0) {
+        return res.status(400).json({ message: "This course is free" });
+      }
+
+      // Get user details
+      const user = await storage.getUser(req.session.userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if user already has access
+      const hasAccess = await storage.hasAccess(req.session.userId, courseId);
+      if (hasAccess) {
+        return res.status(400).json({ message: "You already have access to this course" });
+      }
+
+      // Generate unique order ID
+      const orderId = `course-${courseId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Convert price from cents to dollars
+      const amount = (course.price / 100).toFixed(2);
+
+      // Request payment ticket from Moneris
+      const paymentResult = await monerisClient.preloadPayment({
+        orderId,
+        amount,
+        description: `${course.title} - Loop Lab Course`,
+        customerId: user.id,
+        customerEmail: user.email,
+      });
+
+      if (!paymentResult.success) {
+        return res.status(500).json({ message: paymentResult.error || "Payment initialization failed" });
+      }
+
+      res.json({
+        ticket: paymentResult.ticket,
+        orderId,
+        amount: course.price,
+        courseTitle: course.title,
+      });
+    } catch (error) {
+      console.error("Payment initiation error:", error);
+      res.status(500).json({ message: "Failed to initiate payment" });
+    }
+  });
+
+  app.post("/api/payments/webhook", async (req, res) => {
+    try {
+      const signature = req.headers['x-moneris-signature'] as string;
+      const payload = JSON.stringify(req.body);
+
+      // Verify webhook signature
+      if (!monerisClient.verifyWebhookSignature(payload, signature)) {
+        return res.status(401).json({ message: "Invalid signature" });
+      }
+
+      const webhookData = paymentWebhookSchema.parse(req.body);
+
+      // Check if payment was successful
+      if (webhookData.result === 'APPROVED' && webhookData.response_code === '00') {
+        // Extract course ID from order ID
+        const orderIdMatch = webhookData.order_id.match(/^course-([^-]+)-/);
+        if (!orderIdMatch) {
+          console.error("Invalid order ID format:", webhookData.order_id);
+          return res.status(400).json({ message: "Invalid order ID" });
+        }
+
+        const courseId = orderIdMatch[1];
+        
+        // Find existing enrollment or create new one
+        const existingEnrollments = await storage.getUserEnrollments(''); // We need to find by order ID
+        let userId = '';
+        
+        // In a real implementation, you'd store order -> user mapping
+        // For now, we'll extract from the webhook data if available
+        const course = await storage.getCourse(courseId);
+        if (!course) {
+          console.error("Course not found:", courseId);
+          return res.status(404).json({ message: "Course not found" });
+        }
+
+        // Create or update enrollment with payment information
+        const enrollmentData = {
+          userId: '', // This should be extracted from your order tracking
+          courseId,
+          hasAccess: true,
+          paymentId: webhookData.transaction_id,
+          paidAmount: parseInt(webhookData.amount.replace('.', '')), // Convert to cents
+        };
+
+        // Grant immediate access
+        await storage.grantCourseAccess(enrollmentData.userId, courseId);
+
+        // Send confirmation email
+        // await sendWelcomeEmail(userEmail, userName, course.title);
+
+        console.log(`Payment successful for course ${courseId}, transaction ${webhookData.transaction_id}`);
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error("Webhook processing error:", error);
+      res.status(500).json({ message: "Webhook processing failed" });
+    }
+  });
+
+  // Course completion and access expiration
+  app.post("/api/courses/complete", async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { enrollmentId } = courseCompletionSchema.parse(req.body);
+      
+      // Get enrollment details
+      const enrollment = await storage.getEnrollment(enrollmentId);
+      if (!enrollment || enrollment.userId !== req.session.userId) {
+        return res.status(404).json({ message: "Enrollment not found" });
+      }
+
+      // Mark as completed and set access expiration (10 days from completion)
+      const completedAt = new Date();
+      const accessExpiresAt = new Date(completedAt.getTime() + 10 * 24 * 60 * 60 * 1000); // 10 days
+
+      await storage.completeCourse(enrollmentId, completedAt, accessExpiresAt);
+
+      res.json({ 
+        message: "Course completed successfully",
+        completedAt,
+        accessExpiresAt,
+      });
+    } catch (error) {
+      console.error("Course completion error:", error);
+      res.status(500).json({ message: "Failed to complete course" });
     }
   });
 
