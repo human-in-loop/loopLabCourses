@@ -78,7 +78,7 @@ export default function EmailSignupModal({ isOpen, onClose }: EmailSignupModalPr
               name="email"
               type="email"
               required
-              className="mt-1 bg-loop-dark/50 border-gray-600 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple"
+              className="mt-1 bg-gray-800/80 border-gray-500 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple focus:bg-gray-700/80"
               placeholder="your@email.com"
               data-testid="input-signup-email"
             />
@@ -93,7 +93,7 @@ export default function EmailSignupModal({ isOpen, onClose }: EmailSignupModalPr
               name="name"
               type="text"
               required
-              className="mt-1 bg-loop-dark/50 border-gray-600 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple"
+              className="mt-1 bg-gray-800/80 border-gray-500 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple focus:bg-gray-700/80"
               placeholder="Your Name"
               data-testid="input-signup-name"
             />

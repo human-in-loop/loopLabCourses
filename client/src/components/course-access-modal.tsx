@@ -50,10 +50,10 @@ export default function CourseAccessModal({ isOpen, onClose, courseTitle }: Cour
           
           <div className="space-y-4">
             {!user ? (
-              <>
+              <div className="space-y-4">
                 <Button
                   onClick={handleSignUp}
-                  className="w-full bg-gradient-to-r from-loop-purple to-loop-orange hover:shadow-lg transition-all duration-300"
+                  className="w-full bg-gradient-to-r from-loop-purple to-loop-orange hover:shadow-lg transition-all duration-300 py-3 font-semibold"
                   data-testid="button-signup-from-course"
                 >
                   <i className="fas fa-user-plus mr-2"></i>
@@ -63,15 +63,15 @@ export default function CourseAccessModal({ isOpen, onClose, courseTitle }: Cour
                 <Link href="/auth" onClick={handleSignIn}>
                   <Button
                     variant="outline"
-                    className="w-full glassmorphism border-gray-600 hover:bg-white/10 transition-all duration-300"
+                    className="w-full glassmorphism border-gray-500 text-gray-200 hover:bg-white/10 hover:border-gray-400 transition-all duration-300 py-3 font-semibold"
                     data-testid="button-signin-from-course"
                   >
                     <i className="fas fa-sign-in-alt mr-2"></i>
                     Already Have Account? Sign In
                   </Button>
                 </Link>
-              </>
-            ) : !user?.user?.isVerified ? (
+              </div>
+            ) : !user?.isVerified ? (
               <div className="text-center">
                 <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-4 mb-4">
                   <i className="fas fa-clock text-yellow-400 mb-2"></i>

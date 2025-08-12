@@ -140,7 +140,7 @@ export default function Auth() {
                   name="email"
                   type="email"
                   required
-                  className="mt-1 bg-loop-dark/50 border-gray-600 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple"
+                  className="mt-1 bg-gray-800/80 border-gray-500 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple focus:bg-gray-700/80"
                   placeholder="your@email.com"
                   data-testid="input-email"
                 />
@@ -156,7 +156,7 @@ export default function Auth() {
                     name="name"
                     type="text"
                     required
-                    className="mt-1 bg-loop-dark/50 border-gray-600 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple"
+                    className="mt-1 bg-gray-800/80 border-gray-500 text-white placeholder-gray-400 focus:border-loop-purple focus:ring-loop-purple focus:bg-gray-700/80"
                     placeholder="Your Name"
                     data-testid="input-name"
                   />
@@ -195,7 +195,7 @@ export default function Auth() {
               <button
                 type="button"
                 onClick={() => setIsSignUp(!isSignUp)}
-                className="text-loop-purple hover:text-loop-orange transition-colors"
+                className="text-loop-purple hover:text-loop-orange transition-colors font-medium"
                 data-testid="button-toggle-mode"
               >
                 {isSignUp 
