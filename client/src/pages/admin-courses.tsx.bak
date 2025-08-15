@@ -1,0 +1,248 @@
+import { useState } from "react";
+import { Link } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { apiRequest } from "@/lib/queryClient";
+import type { Course } from "@shared/schema";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { getDocumentId } from '@/utils/mongodb';
+
+export default function AdminCourses() {
+    const [newCourse, setNewCourse] = useState({
+        title: "",
+        description: "",
+        instructor: "",
+        duration: "",
+        price: 0,
+        level: "Beginner" as const,
+        category: "Technology",
+        units: "1 unit",
+        schedule: "Self-paced"
+    });
+
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    // Fix the query to properly handle loading and errors
+    const { data: courses = [], isLoading, error } = useQuery<Course[]>({
+        queryKey: ["/api/admin/courses"],
+        queryFn: async () => {
+            console.log("Fetching admin courses...");
+            const response = await apiRequest("GET", "/api/admin/courses");
+
+            if (!response.ok) {
+                console.error("Failed to fetch courses:", response.status, response.statusText);
+                throw new Error(`Failed to fetch courses: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log("Courses fetched successfully:", data);
+            return data;
+        }
+    });
+
+    const createCourseMutation = useMutation({
+        mutationFn: async (courseData: typeof newCourse) => {
+            const response = await apiRequest("POST", "/api/admin/courses", courseData);
+            if (!response.ok) {
+                throw new Error("Failed to create course");
+            }
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/courses"] });
+            setNewCourse({
+                title: "",
+                description: "",
+                instructor: "",
+                duration: "",
+                price: 0,
+                level: "Beginner",
+                category: "Technology",
+                units: "1 unit",
+                schedule: "Self-paced"
+            });
+            toast({
+                title: "Course created",
+                description: "The course has been successfully created."
+            });
+        }
+    });
+
+    const deleteCourseMutation = useMutation({
+        mutationFn: async (courseId: string) => {
+            if (!courseId) {
+                throw new Error("Cannot delete course: Missing ID");
+            }
+
+            console.log("Attempting to delete course with ID:", courseId);
+            const response = await apiRequest("DELETE", `/api/admin/courses/${courseId}`);
+
+            if (!response.ok) {
+                throw new Error("Failed to delete course");
+            }
+
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/courses"] });
+            toast({
+                title: "Course deleted",
+                description: "The course has been successfully deleted."
+            });
+        }
+    });
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        createCourseMutation.mutate(newCourse);
+    };
+
+    // Add error handling
+    if (error) {
+        return (
+            <div className="min-h-screen bg-loop-dark text-white pt-20 px-4">
+                <div className="max-w-7xl mx-auto">
+                    <div className="bg-red-900/20 border border-red-700 rounded-md p-4">
+                        <h2 className="text-xl font-bold text-red-400 mb-2">Error Loading Courses</h2>
+                        <p className="text-red-300">Failed to load courses: {error.message}</p>
+                        <Button
+                            onClick={() => window.location.reload()}
+                            className="mt-4"
+                            variant="outline"
+                        >
+                            Retry
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-loop-dark text-white pt-20 px-4">
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold mb-8">Course Management</h1>
+
+                {/* Create Course Form */}
+                <div className="bg-gray-800 p-6 rounded-lg mb-8">
+                    <h2 className="text-xl font-bold mb-4">Create New Course</h2>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label htmlFor="title" className="block mb-1">Course Title</label>
+                            <Input
+                                id="title"
+                                value={newCourse.title}
+                                onChange={(e) => setNewCourse({ ...newCourse, title: e.target.value })}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="description" className="block mb-1">Description</label>
+                            <textarea
+                                id="description"
+                                className="w-full bg-gray-700 p-2 rounded"
+                                value={newCourse.description}
+                                onChange={(e) => setNewCourse({ ...newCourse, description: e.target.value })}
+                                required
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="instructor" className="block mb-1">Instructor</label>
+                                <Input
+                                    id="instructor"
+                                    value={newCourse.instructor}
+                                    onChange={(e) => setNewCourse({ ...newCourse, instructor: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="duration" className="block mb-1">Duration</label>
+                                <Input
+                                    id="duration"
+                                    value={newCourse.duration}
+                                    onChange={(e) => setNewCourse({ ...newCourse, duration: e.target.value })}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <Button type="submit" disabled={createCourseMutation.isPending}>
+                            {createCourseMutation.isPending ? "Creating..." : "Create Course"}
+                        </Button>
+                    </form>
+                </div>
+
+                {/* Course List */}
+                <h2 className="text-2xl font-bold mb-4">Existing Courses</h2>
+                {isLoading ? (
+                    <div className="bg-gray-800 p-6 rounded-lg">
+                        <p>Loading courses...</p>
+                    </div>
+                ) : courses.length === 0 ? (
+                    <div className="bg-gray-800 p-6 rounded-lg">
+                        <p>No courses yet. Create your first course above.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {courses.map((course) => (
+                            <div
+                                key={getDocumentId(course)}
+                                className="bg-gray-800 p-4 rounded-lg"
+                            >
+                                <h3 className="text-xl font-bold">{course.title}</h3>
+                                <p className="text-gray-300">{course.description}</p>
+                                <div className="mt-2 flex space-x-2">
+                                    <Link href={`/admin/courses/edit/${getDocumentId(course)}`}>
+                                        <Button size="sm" variant="outline">Edit</Button>
+                                    </Link>
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="destructive" size="sm">
+                                                Delete
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Delete Course</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    Are you sure you want to delete "{course.title}"? This action cannot be undone.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction
+                                                    onClick={() => {
+                                                        const courseId = getDocumentId(course);
+                                                        if (courseId) {
+                                                            deleteCourseMutation.mutate(courseId);
+                                                        }
+                                                    }}
+                                                    className="bg-red-600 hover:bg-red-700"
+                                                >
+                                                    Delete
+                                                </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}

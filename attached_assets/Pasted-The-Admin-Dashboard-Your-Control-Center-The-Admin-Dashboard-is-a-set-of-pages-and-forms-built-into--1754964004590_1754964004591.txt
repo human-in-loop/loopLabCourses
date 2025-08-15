@@ -1,0 +1,62 @@
+The Admin Dashboard: Your Control Center
+The Admin Dashboard is a set of pages and forms built into your React application that only you, as the administrator, can access. It will give you the power to perform all necessary CRUD (Create, Read, Update, Delete) operations by communicating with the secure Admin API endpoints we planned earlier.
+
+Here is the complete plan for building it.
+
+Step 1: Create a Secure Admin Section
+First, you need to create a private area of your application.
+
+Admin Authentication: You'll need a way to distinguish a regular user from an admin. The simplest way is to add an isAdmin boolean field to your users schema in shared/schema.ts. You would manually set this field to true for your own user account directly in the MongoDB database.
+
+Protected Routes: In your client/src/App.tsx, you will create a new set of routes under a path like /admin. These routes will be protected, meaning they will check if the logged-in user has the isAdmin flag before rendering the page. If a non-admin user tries to access /admin, they will be redirected to the home page or a "not found" page.
+
+Step 2: Build the Course Management Interface
+This is where you will manage your course catalog.
+
+Course List Page (/admin/courses):
+
+Functionality: This page will display a table of all your courses. Each row will have "Edit" and "Delete" buttons. There will also be a "Create New Course" button.
+
+API Calls: It will fetch data from GET /api/courses and use DELETE /api/admin/courses/:id for deletions.
+
+Course Editor Page (/admin/courses/edit/:id):
+
+Functionality: This will be a form where you can update a course's title, description, price, instructor, and other details. This is the interface for changing the "Course Overview" and "Course Information" that students see.
+
+API Calls: It will use PUT /api/admin/courses/:id to save changes.
+
+Step 3: Build the Content Management Interface
+This is the core of the dashboard, allowing you to build and structure your courses.
+
+Course Content Editor (within the Course Editor page):
+
+Functionality: On the "Edit Course" page, you will add a section to manage the course structure. It will show a list of modules and the lessons within them. You'll be able to:
+
+Create, rename, and delete modules.
+
+Create, edit, and delete lessons within each module.
+
+Drag and drop modules and lessons to reorder them.
+
+API Calls: This interface will interact with your new Admin API endpoints for managing modules and lessons (e.g., POST /api/admin/modules, PUT /api/admin/lessons/:id).
+
+Lesson Editor Page (/admin/lessons/edit/:id):
+
+Functionality: This page will feature a rich text (Markdown) editor. Here, you will write your case studies, add reading material, and paste in the URLs for your embedded YouTube videos and podcasts.
+
+API Calls: It will save the content using PUT /api/admin/lessons/:id.
+
+Step 4: Build the Student and Grading Interface
+This final section is for managing your students and finalizing their progress.
+
+Submissions Viewer (/admin/assignments/:id/submissions):
+
+Functionality: This page will show a list of all students who have submitted their capstone project for a specific assignment. You'll be able to download their submitted files.
+
+API Calls: It will fetch data from a new endpoint like GET /api/admin/submissions?assignmentId=:id.
+
+Grading Form (on the Submissions Viewer page):
+
+Functionality: Next to each student's submission, there will be a simple form where you can enter a grade and click a "Mark as Complete" button.
+
+API Calls: This button is the final trigger. It will call POST /api/admin/submissions/:id/grade, which, as planned, will kick off the automated process of setting the 10-day access expiration.

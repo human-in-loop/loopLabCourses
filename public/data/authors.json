@@ -1,0 +1,18 @@
+[
+  {
+    "id": "52d609b5-279c-4274-af71-01de8e737374",
+    "name": "Priti Yadav",
+    "email": "pritiyadav888@gmail.com",
+    "bio": "Priti Yadav is an educator, developer and AI/ML enthusiast with expertise in machine learning applications and a strong interest in image processing and analysis. Leading AI-focused initiative, she emphasize collaborative learning and open-source practices. Passionate about interdisciplinary AI applications, my work explores accessibility, productivity, and sustainability. She actively contribute to community-driven AI/ML events. She leads Google Developer Groups Surrey.",
+    "avatar": "",
+    "socials": {
+      "twitter": "",
+      "linkedin": "https://www.linkedin.com/in/priti-yadavml/",
+      "website": "https://gdg.community.dev/gdg-surrey/",
+      "github": "https://github.com/pritiyadav888"
+    },
+    "isActive": true,
+    "createdAt": "2025-08-14T22:02:37.750Z",
+    "updatedAt": "2025-08-14T22:02:37.750Z"
+  }
+]

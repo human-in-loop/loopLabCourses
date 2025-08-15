@@ -7,6 +7,7 @@ The application serves as a landing page and course management system for Human 
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
+Deployment preference: Firebase deployment over Replit environment.
 
 # System Architecture
 
@@ -76,3 +77,20 @@ Preferred communication style: Simple, everyday language.
 - **Type Checking**: Strict TypeScript configuration with path mapping
 - **Build Process**: Optimized production builds with code splitting
 - **Asset Management**: Integrated asset handling with proper imports and optimization
+
+## Payment and Course Access System (January 2025)
+- **Free vs Paid Courses**: Courses now support pricing in cents (0 = free)
+- **Moneris Integration**: Complete payment processing with preload tickets and webhooks
+- **Access Management**: Time-based access control with 10-day expiration after completion
+- **Course Completion**: Tracking system for course progress and automatic access expiration
+- **Firebase Deployment**: Configured for Firebase hosting and cloud functions
+- **Security**: Webhook signature verification and secure payment processing
+
+## Phase 3: Course Completion and Access Expiration (January 2025)
+- **Lesson Progress Tracking**: Students can mark individual lessons as complete via POST /api/lessons/:id/complete
+- **Progress Persistence**: All lesson completion data stored in database with timestamps
+- **Admin Grading System**: Complete submission management with POST /api/admin/submissions/:id/grade
+- **Automated Course Completion**: When admin grades final submission, course completion is triggered automatically
+- **10-Day Access Expiration**: Upon course completion, access automatically expires 10 days later
+- **Frontend Integration**: Course player includes lesson completion buttons and progress tracking
+- **Database Schema**: Added lessonProgress and submissions tables for comprehensive tracking

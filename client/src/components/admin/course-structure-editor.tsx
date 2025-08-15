@@ -1,0 +1,816 @@
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "@/components/ui/form";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import Spinner from "../ui/spinner";
+import type { Course, Module, Lesson } from "@shared/schema";
+
+interface CourseStructureEditorProps {
+    courseId: string;
+}
+
+// Schema for module form
+const moduleSchema = z.object({
+    title: z.string().min(1, "Title is required"),
+    description: z.string().optional(),
+});
+
+type ModuleFormValues = z.infer<typeof moduleSchema>;
+
+// Schema for lesson form
+const lessonSchema = z.object({
+    title: z.string().min(1, "Title is required"),
+    type: z.enum(["video", "text", "quiz", "assignment", "podcast", "reading"]),
+    content: z.string().optional(),
+    videoUrl: z.string().optional(),
+    duration: z.string().optional(),
+    isRequired: z.boolean().default(true),
+});
+
+type LessonFormValues = z.infer<typeof lessonSchema>;
+
+// Add this interface at the top of your file with other interfaces
+interface CourseStructureData {
+    course: Course;
+    modules: Array<Module & { lessons: Lesson[] }>;
+}
+
+export default function CourseStructureEditor({ courseId }: CourseStructureEditorProps) {
+    const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
+    const [lessonDialogOpen, setLessonDialogOpen] = useState(false);
+    const [editingModule, setEditingModule] = useState<Module | null>(null);
+    const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+    const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+    const { toast } = useToast();
+    const queryClient = useQueryClient();
+
+    // Validate courseId prop
+    useEffect(() => {
+        if (!courseId) {
+            console.error("CourseStructureEditor initialized with invalid courseId:", courseId);
+        }
+    }, [courseId]);
+
+    // Fetch course structure
+    const { data: courseStructure, isLoading } = useQuery<CourseStructureData>({
+        queryKey: ["courseStructure", courseId],
+        queryFn: async () => {
+            if (!courseId) {
+                throw new Error("Cannot fetch course structure: Missing course ID");
+            }
+
+            // console.log("Fetching course structure for ID:", courseId);
+            const response = await apiRequest("GET", `/api/admin/courses/${courseId}/structure`);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Structure fetch error:", errorText);
+                throw new Error("Failed to load course structure");
+            }
+
+            return response.json();
+        },
+        enabled: !!courseId, // Only run query if courseId exists
+    });
+
+    // Module form setup
+    const moduleForm = useForm<ModuleFormValues>({
+        resolver: zodResolver(moduleSchema),
+        defaultValues: {
+            title: "",
+            description: "",
+        },
+    });
+
+    // Lesson form setup
+    const lessonForm = useForm<LessonFormValues>({
+        resolver: zodResolver(lessonSchema),
+        defaultValues: {
+            title: "",
+            type: "video",
+            content: "",
+            videoUrl: "",
+            duration: "",
+            isRequired: true,
+        },
+    });
+
+    // Create/Update module mutation
+    const moduleMutation = useMutation({
+        mutationFn: async (data: ModuleFormValues & { id?: string }) => {
+            const url = data.id
+                ? `/api/admin/modules/${data.id}`
+                : `/api/admin/courses/${courseId}/modules`;
+            const method = data.id ? "PUT" : "POST";
+
+            const response = await apiRequest(method, url, data);
+            if (!response.ok) {
+                throw new Error(`Failed to ${data.id ? "update" : "create"} module`);
+            }
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["courseStructure", courseId] });
+            toast({
+                title: `Module ${editingModule ? "updated" : "created"} successfully`,
+            });
+            setModuleDialogOpen(false);
+            setEditingModule(null);
+            moduleForm.reset();
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Error",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
+    // Create/Update lesson mutation
+    const lessonMutation = useMutation({
+        mutationFn: async (data: LessonFormValues & { id?: string; moduleId: string }) => {
+            const url = data.id
+                ? `/api/admin/lessons/${data.id}`
+                : `/api/admin/modules/${data.moduleId}/lessons`;
+            const method = data.id ? "PUT" : "POST";
+
+            const response = await apiRequest(method, url, data);
+            if (!response.ok) {
+                throw new Error(`Failed to ${data.id ? "update" : "create"} lesson`);
+            }
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["courseStructure", courseId] });
+            toast({
+                title: `Lesson ${editingLesson ? "updated" : "created"} successfully`,
+            });
+            setLessonDialogOpen(false);
+            setEditingLesson(null);
+            lessonForm.reset();
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Error",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
+    // Delete module mutation
+    const deleteModuleMutation = useMutation({
+        mutationFn: async (moduleId: string) => {
+            const response = await apiRequest("DELETE", `/api/admin/modules/${moduleId}`);
+            if (!response.ok) {
+                throw new Error("Failed to delete module");
+            }
+            return true;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["courseStructure", courseId] });
+            toast({
+                title: "Module deleted successfully",
+            });
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Error",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
+    // Delete lesson mutation
+    const deleteLessonMutation = useMutation({
+        mutationFn: async (lessonId: string) => {
+            const response = await apiRequest("DELETE", `/api/admin/lessons/${lessonId}`);
+            if (!response.ok) {
+                throw new Error("Failed to delete lesson");
+            }
+            return true;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["courseStructure", courseId] });
+            toast({
+                title: "Lesson deleted successfully",
+            });
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Error",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
+    // Reorder modules or lessons
+    const reorderMutation = useMutation({
+        mutationFn: async ({
+            type,
+            itemId,
+            newOrder
+        }: {
+            type: "module" | "lesson";
+            itemId: string;
+            newOrder: number
+        }) => {
+            const url = type === "module"
+                ? `/api/admin/modules/${itemId}/reorder`
+                : `/api/admin/lessons/${itemId}/reorder`;
+
+            const response = await apiRequest("PUT", url, { order: newOrder });
+            if (!response.ok) {
+                throw new Error(`Failed to reorder ${type}`);
+            }
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["courseStructure", courseId] });
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Error",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
+    // Handle module form submission
+    const handleModuleSubmit = (data: ModuleFormValues) => {
+        moduleMutation.mutate(editingModule
+            ? { ...data, id: editingModule.id }
+            : { ...data });
+    };
+
+    // Handle lesson form submission
+    const handleLessonSubmit = (data: LessonFormValues) => {
+        if (!activeModuleId && !editingLesson?.moduleId) {
+            toast({
+                title: "Error",
+                description: "No module selected",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        lessonMutation.mutate({
+            ...data,
+            id: editingLesson?.id,
+            moduleId: editingLesson?.moduleId || activeModuleId!,
+        });
+    };
+
+    // Open module dialog for editing
+    const handleEditModule = (module: Module) => {
+        setEditingModule(module);
+        moduleForm.reset({
+            title: module.title,
+            description: module.description || "",
+        });
+        setModuleDialogOpen(true);
+    };
+
+    // Open module dialog for creating
+    const handleAddModule = () => {
+        setEditingModule(null);
+        moduleForm.reset({
+            title: "",
+            description: "",
+        });
+        setModuleDialogOpen(true);
+    };
+
+    // Open lesson dialog for editing
+    const handleEditLesson = (lesson: Lesson) => {
+        setEditingLesson(lesson);
+        lessonForm.reset({
+            title: lesson.title,
+            type: lesson.type,
+            content: lesson.content || "",
+            videoUrl: lesson.videoUrl || "",
+            duration: lesson.duration || "",
+            isRequired: lesson.isRequired ?? true,
+        });
+        setLessonDialogOpen(true);
+    };
+
+    // Open lesson dialog for creating
+    const handleAddLesson = (moduleId: string) => {
+        setActiveModuleId(moduleId);
+        setEditingLesson(null);
+        lessonForm.reset({
+            title: "",
+            type: "video",
+            content: "",
+            videoUrl: "",
+            duration: "",
+            isRequired: true,
+        });
+        setLessonDialogOpen(true);
+    };
+
+    // Handle drag end for reordering
+    const handleDragEnd = (result: any) => {
+        const { destination, source, type } = result;
+
+        // Return if dropped outside the list or if courseStructure is undefined
+        if (!destination || !courseStructure) return;
+
+        // Return if dropped in the same place
+        if (destination.droppableId === source.droppableId &&
+            destination.index === source.index) {
+            return;
+        }
+
+        if (type === 'MODULE') {
+            // Get the moved module - add null check for modules array
+            if (!courseStructure.modules || source.index >= courseStructure.modules.length) {
+                console.error("Invalid module index or modules array");
+                return;
+            }
+
+            const moduleId = courseStructure.modules[source.index].id;
+
+            // Update order in the database
+            reorderMutation.mutate({
+                type: "module",
+                itemId: moduleId,
+                newOrder: destination.index,
+            });
+        } else if (type === 'LESSON') {
+            // Extract module ID from droppableId (format: "module-{moduleId}")
+            const moduleId = source.droppableId.replace('module-', '');
+
+            // Find the module - add null check
+            if (!courseStructure.modules) {
+                console.error("Modules array is undefined");
+                return;
+            }
+
+            const module = courseStructure.modules.find(m => m.id === moduleId);
+            if (!module || !module.lessons || source.index >= module.lessons.length) {
+                console.error("Invalid module or lesson index");
+                return;
+            }
+
+            // Get the moved lesson
+            const lessonId = module.lessons[source.index].id;
+
+            // Update order in the database
+            reorderMutation.mutate({
+                type: "lesson",
+                itemId: lessonId,
+                newOrder: destination.index,
+            });
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <div className="flex justify-center items-center py-12">
+                <Spinner size="lg" />
+            </div>
+        );
+    }
+
+    // Add validation within component
+    if (!courseId) {
+        return (
+            <div className="p-4 bg-red-900/20 border border-red-700 rounded-md">
+                <p>Error: Cannot load course structure - missing course ID</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="mt-8">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Course Structure</h2>
+                <Button
+                    onClick={handleAddModule}
+                    className="bg-loop-purple hover:bg-purple-700"
+                >
+                    <i className="fas fa-plus mr-2"></i> Add Module
+                </Button>
+            </div>
+
+            {courseStructure?.modules?.length === 0 ? (
+                <div className="text-center py-12 bg-gray-800/30 rounded-md">
+                    <p className="text-gray-400">This course has no modules yet.</p>
+                    <p className="text-gray-400 mt-2">
+                        Create your first module to start building your course.
+                    </p>
+                </div>
+            ) : (
+                <DragDropContext onDragEnd={handleDragEnd}>
+                    <Droppable droppableId="modules" type="MODULE">
+                        {(provided) => (
+                            <div
+                                {...provided.droppableProps}
+                                ref={provided.innerRef}
+                                className="space-y-4"
+                            >
+                                {courseStructure?.modules?.map((module: Module & { lessons: Lesson[] }, index: number) => (
+                                    <Draggable key={module.id} draggableId={module.id} index={index}>
+                                        {(provided) => (
+                                            <div
+                                                ref={provided.innerRef}
+                                                {...provided.draggableProps}
+                                                className="bg-gray-800 rounded-lg overflow-hidden"
+                                            >
+                                                <Accordion type="single" collapsible>
+                                                    <AccordionItem value={module.id} className="border-0">
+                                                        <div className="flex justify-between items-center bg-gray-800/80 px-4">
+                                                            <div className="flex items-center">
+                                                                <div {...provided.dragHandleProps} className="mr-3">
+                                                                    <i className="fas fa-grip-lines text-gray-500"></i>
+                                                                </div>
+                                                                <AccordionTrigger className="py-4 flex-1">
+                                                                    <span className="font-semibold text-lg">{module.title}</span>
+                                                                </AccordionTrigger>
+                                                            </div>
+                                                            <div className="flex items-center space-x-2">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleEditModule(module);
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-edit"></i>
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="text-red-400 hover:text-red-300"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (confirm("Are you sure you want to delete this module?")) {
+                                                                            deleteModuleMutation.mutate(module.id);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <i className="fas fa-trash-alt"></i>
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                        <AccordionContent className="bg-gray-900">
+                                                            <div className="p-4">
+                                                                <div className="flex justify-between items-center mb-4">
+                                                                    <h3 className="text-md font-medium text-gray-300">Lessons</h3>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        onClick={() => handleAddLesson(module.id)}
+                                                                    >
+                                                                        <i className="fas fa-plus mr-2"></i> Add Lesson
+                                                                    </Button>
+                                                                </div>
+
+                                                                {module.lessons.length === 0 ? (
+                                                                    <p className="text-gray-500 text-sm">No lessons in this module.</p>
+                                                                ) : (
+                                                                    <Droppable droppableId={`module-${module.id}`} type="LESSON">
+                                                                        {(provided) => (
+                                                                            <div
+                                                                                ref={provided.innerRef}
+                                                                                {...provided.droppableProps}
+                                                                                className="space-y-2"
+                                                                            >
+                                                                                {module.lessons.map((lesson: Lesson, index: number) => (
+                                                                                    <Draggable
+                                                                                        key={lesson.id}
+                                                                                        draggableId={lesson.id}
+                                                                                        index={index}
+                                                                                    >
+                                                                                        {(provided) => (
+                                                                                            <div
+                                                                                                ref={provided.innerRef}
+                                                                                                {...provided.draggableProps}
+                                                                                                {...provided.dragHandleProps}
+                                                                                                className="bg-gray-800/60 p-3 rounded flex justify-between items-center"
+                                                                                            >
+                                                                                                <div className="flex items-center">
+                                                                                                    <i className="fas fa-grip-lines text-gray-500 mr-3"></i>
+                                                                                                    <div>
+                                                                                                        <p className="font-medium">{lesson.title}</p>
+                                                                                                        <p className="text-xs text-gray-400">
+                                                                                                            {lesson.type.charAt(0).toUpperCase() + lesson.type.slice(1)}
+                                                                                                            {lesson.duration && ` • ${lesson.duration}`}
+                                                                                                        </p>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div className="flex items-center space-x-2">
+                                                                                                    <Button
+                                                                                                        size="sm"
+                                                                                                        variant="ghost"
+                                                                                                        onClick={() => handleEditLesson(lesson)}
+                                                                                                    >
+                                                                                                        <i className="fas fa-edit"></i>
+                                                                                                    </Button>
+                                                                                                    <Button
+                                                                                                        size="sm"
+                                                                                                        variant="ghost"
+                                                                                                        className="text-red-400 hover:text-red-300"
+                                                                                                        onClick={() => {
+                                                                                                            if (confirm("Are you sure you want to delete this lesson?")) {
+                                                                                                                deleteLessonMutation.mutate(lesson.id);
+                                                                                                            }
+                                                                                                        }}
+                                                                                                    >
+                                                                                                        <i className="fas fa-trash-alt"></i>
+                                                                                                    </Button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </Draggable>
+                                                                                ))}
+                                                                                {provided.placeholder}
+                                                                            </div>
+                                                                        )}
+                                                                    </Droppable>
+                                                                )}
+                                                            </div>
+                                                        </AccordionContent>
+                                                    </AccordionItem>
+                                                </Accordion>
+                                            </div>
+                                        )}
+                                    </Draggable>
+                                ))}
+                                {provided.placeholder}
+                            </div>
+                        )}
+                    </Droppable>
+                </DragDropContext>
+            )}
+
+            {/* Module Dialog */}
+            <Dialog open={moduleDialogOpen} onOpenChange={setModuleDialogOpen}>
+                <DialogContent className="bg-gray-900 border border-gray-700 text-white">
+                    <DialogHeader>
+                        <DialogTitle>{editingModule ? "Edit Module" : "Create Module"}</DialogTitle>
+                    </DialogHeader>
+                    <Form {...moduleForm}>
+                        <form onSubmit={moduleForm.handleSubmit(handleModuleSubmit)} className="space-y-4">
+                            <FormField
+                                control={moduleForm.control}
+                                name="title"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Title</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                {...field}
+                                                placeholder="Module Title"
+                                                className="bg-gray-800 border-gray-700"
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={moduleForm.control}
+                                name="description"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Description (Optional)</FormLabel>
+                                        <FormControl>
+                                            <Textarea
+                                                {...field}
+                                                placeholder="Module Description"
+                                                className="bg-gray-800 border-gray-700"
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <div className="flex justify-end gap-2 pt-4">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setModuleDialogOpen(false)}
+                                    className="border-gray-600"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={moduleMutation.isPending}
+                                    className="bg-loop-purple hover:bg-purple-700"
+                                >
+                                    {moduleMutation.isPending ? (
+                                        <>
+                                            <Spinner size="sm" className="mr-2" />
+                                            {editingModule ? "Updating..." : "Creating..."}
+                                        </>
+                                    ) : (
+                                        <>{editingModule ? "Update Module" : "Create Module"}</>
+                                    )}
+                                </Button>
+                            </div>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+
+            {/* Lesson Dialog */}
+            <Dialog open={lessonDialogOpen} onOpenChange={setLessonDialogOpen}>
+                <DialogContent className="bg-gray-900 border border-gray-700 text-white max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{editingLesson ? "Edit Lesson" : "Create Lesson"}</DialogTitle>
+                    </DialogHeader>
+                    <Form {...lessonForm}>
+                        <form onSubmit={lessonForm.handleSubmit(handleLessonSubmit)} className="space-y-4">
+                            <FormField
+                                control={lessonForm.control}
+                                name="title"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Title</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                {...field}
+                                                placeholder="Lesson Title"
+                                                className="bg-gray-800 border-gray-700"
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={lessonForm.control}
+                                name="type"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Lesson Type</FormLabel>
+                                        <Select
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <FormControl>
+                                                <SelectTrigger className="bg-gray-800 border-gray-700">
+                                                    <SelectValue placeholder="Select type" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent className="bg-gray-900 border-gray-700">
+                                                <SelectItem value="video">Video</SelectItem>
+                                                <SelectItem value="text">Text</SelectItem>
+                                                <SelectItem value="quiz">Quiz</SelectItem>
+                                                <SelectItem value="assignment">Assignment</SelectItem>
+                                                <SelectItem value="podcast">Podcast</SelectItem>
+                                                <SelectItem value="reading">Reading</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            {lessonForm.watch("type") === "video" && (
+                                <FormField
+                                    control={lessonForm.control}
+                                    name="videoUrl"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Video URL</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    {...field}
+                                                    placeholder="https://youtube.com/..."
+                                                    className="bg-gray-800 border-gray-700"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            )}
+                            {(lessonForm.watch("type") === "text" ||
+                                lessonForm.watch("type") === "reading") && (
+                                    <FormField
+                                        control={lessonForm.control}
+                                        name="content"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Content</FormLabel>
+                                                <FormControl>
+                                                    <Textarea
+                                                        {...field}
+                                                        placeholder="Lesson content..."
+                                                        className="bg-gray-800 border-gray-700 min-h-32"
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                )}
+                            <FormField
+                                control={lessonForm.control}
+                                name="duration"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Duration (Optional)</FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                {...field}
+                                                placeholder="e.g., 15 min"
+                                                className="bg-gray-800 border-gray-700"
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={lessonForm.control}
+                                name="isRequired"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 mt-4">
+                                        <FormControl>
+                                            <input
+                                                type="checkbox"
+                                                checked={field.value}
+                                                onChange={field.onChange}
+                                                className="rounded bg-gray-800 border-gray-700"
+                                            />
+                                        </FormControl>
+                                        <FormLabel>Required to complete course</FormLabel>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <div className="flex justify-end gap-2 pt-4">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setLessonDialogOpen(false)}
+                                    className="border-gray-600"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={lessonMutation.isPending}
+                                    className="bg-loop-purple hover:bg-purple-700"
+                                >
+                                    {lessonMutation.isPending ? (
+                                        <>
+                                            <Spinner size="sm" className="mr-2" />
+                                            {editingLesson ? "Updating..." : "Creating..."}
+                                        </>
+                                    ) : (
+                                        <>{editingLesson ? "Update Lesson" : "Create Lesson"}</>
+                                    )}
+                                </Button>
+                            </div>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}

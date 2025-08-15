@@ -1,0 +1,44 @@
+Of course. Here is the complete plan detailing the necessary changes to your application to support both free and paid courses, manage course access, and implement a 10-day access expiration after course completion.
+
+Phase 1: The Backend and Database Foundation
+This is the most critical phase, where you'll build the core logic to differentiate between free and paid enrollment and manage access.
+
+1. Update the Database Schema
+You need to modify your data models in shared/schema.ts to store pricing information and track the course completion lifecycle.
+
+Add a Price to Courses: In the courses table definition, add a price field. A price of 0 will signify a free course.
+
+TypeScript
+
+// in shared/schema.ts
+export const courses = pgTable("courses", {
+  // ... existing fields
+  price: integer("price").default(0), // Price in cents
+});
+Track Course Completion in Enrollments: Add two new fields to the enrollments table to manage the access window.
+
+TypeScript
+
+// in shared/schema.ts
+export const enrollments = pgTable("enrollments", {
+  // ... existing fields
+  completedAt: timestamp("completed_at"),
+  accessExpiresAt: timestamp("access_expires_at"),
+});
+2. Re-architect the Enrollment and Payment Flow
+You'll need new backend logic in server/routes.ts to handle the different enrollment paths.
+
+For Free Courses: The existing enrollment process will be simplified. When a user enrolls in a free course, the /api/enrollments endpoint will immediately create an enrollment record with hasAccess: true if their email is already verified.
+
+For Paid Courses (New Flow):
+
+Create a Payment Initiation Endpoint: Build a new route, POST /api/payments/initiate. This endpoint will take a courseId, look up its price from the database, and make a server-to-server "Preload" request to Moneris to get a secure payment ticket. This ticket is then sent back to the frontend.
+
+Create a Moneris Webhook Endpoint: Build another new route, POST /api/payments/webhook. This is a secure endpoint that only Moneris will call. When a payment is successful, Moneris will send a notification here. This endpoint will:
+
+Verify the notification is authentic.
+
+Create the enrollment record for the user and course, setting hasAccess: true.
+
+Send a confirmation email to the user that their payment was successful and they now have access.
+

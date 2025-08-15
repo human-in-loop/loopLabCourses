@@ -1,0 +1,309 @@
+import nodemailer from "nodemailer";
+import crypto from "crypto";
+
+// Email service configuration using Gmail's free SMTP
+const createTransporter = () => {
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (!emailUser || !emailPass) {
+    console.warn(
+      "Email credentials not configured. Email verification disabled."
+    );
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: emailUser,
+      pass: emailPass, // Use App Password for Gmail
+    },
+  });
+};
+
+export const generateVerificationToken = (): string => {
+  return crypto.randomBytes(32).toString("hex");
+};
+
+export const sendVerificationEmail = async (
+  email: string,
+  name: string,
+  token: string
+): Promise<boolean> => {
+  const transporter = createTransporter();
+
+  if (!transporter) {
+    // console.log("Email service not configured. Skipping email send.");
+    return false;
+  }
+
+  const verificationUrl = `${
+    process.env.BASE_URL || "http://localhost:5001"
+  }/api/auth/verify?token=${token}`;
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Verify Your Email - Loop Lab Course",
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Email Verification</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #1a1a1a; color: white; padding: 20px; text-align: center; }
+          .content { padding: 30px 20px; background: #f9f9f9; }
+          .button { 
+            display: inline-block; 
+            background: #007bff; 
+            color: white; 
+            padding: 12px 30px; 
+            text-decoration: none; 
+            border-radius: 5px; 
+            margin: 20px 0;
+          }
+          .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Loop Lab Course</h1>
+          </div>
+          <div class="content">
+            <h2>Welcome ${name}!</h2>
+            <p>Thank you for signing up for Loop Lab Course. To complete your registration and gain access to our premium courses, please verify your email address.</p>
+            
+            <p>Click the button below to verify your email:</p>
+            <a href="${verificationUrl}" class="button">Verify Email Address</a>
+            
+            <p>Or copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #007bff;">${verificationUrl}</p>
+            
+            <p><strong>This link will expire in 24 hours.</strong></p>
+            
+            <p>Once verified, you'll have access to:</p>
+            <ul>
+              <li>Modern Software Development courses</li>
+              <li>AI-assisted coding tutorials</li>
+              <li>Automated testing workflows</li>
+              <li>Premium learning materials</li>
+            </ul>
+            
+            <p>If you didn't create this account, you can safely ignore this email.</p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Human in Loop AI Corp. All rights reserved.</p>
+            <p>This is an automated message, please do not reply to this email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    // console.log(`Verification email sent to ${email}`);
+    return true;
+  } catch (error) {
+    console.error("Error sending verification email:", error);
+    return false;
+  }
+};
+
+export const sendWelcomeEmail = async (
+  email: string,
+  name: string
+): Promise<boolean> => {
+  const transporter = createTransporter();
+
+  if (!transporter) {
+    return false;
+  }
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Welcome to Loop Lab Course!",
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Welcome to Loop Lab Course</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #1a1a1a; color: white; padding: 20px; text-align: center; }
+          .content { padding: 30px 20px; background: #f9f9f9; }
+          .button { 
+            display: inline-block; 
+            background: #28a745; 
+            color: white; 
+            padding: 12px 30px; 
+            text-decoration: none; 
+            border-radius: 5px; 
+            margin: 20px 0;
+          }
+          .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🎉 Welcome to Loop Lab Course!</h1>
+          </div>
+          <div class="content">
+            <h2>Hi ${name},</h2>
+            <p>Congratulations! Your email has been verified and you now have full access to Loop Lab Course.</p>
+            
+            <p>You can now access all your enrolled courses and premium content:</p>
+            <a href="${
+              process.env.BASE_URL || "http://localhost:5001"
+            }" class="button">Access Your Courses</a>
+            
+            <h3>What's Next?</h3>
+            <ul>
+              <li>Explore your enrolled courses</li>
+              <li>Join our community discussions</li>
+              <li>Start with the Modern Software Development track</li>
+              <li>Check out our AI-assisted coding tools</li>
+            </ul>
+            
+            <p>If you have any questions, feel free to reach out to our support team.</p>
+            
+            <p>Happy learning!</p>
+            <p><strong>The Loop Lab Course Team</strong></p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Human in Loop AI Corp. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    // console.log(`Welcome email sent to ${email}`);
+    return true;
+  } catch (error) {
+    console.error("Error sending welcome email:", error);
+    return false;
+  }
+};
+
+/* ---------------------------
+   NEW: Services Enquiry Email
+---------------------------- */
+
+export type EnquiryPayload = {
+  submittedAt: string; // ISO string
+  name?: string;
+  email: string; // reply-to
+  company?: string;
+  service?: string; // top-level service selected
+  subservices?: string[]; // specific focuses (optional)
+  message: string; // free-text details
+  source?: string; // e.g., "services-page"
+  ip?: string | null; // captured on server
+  ua?: string | null; // user-agent
+};
+
+export const sendEnquiryEmail = async (
+  to: string, // e.g., "support@humaninloop.ca"
+  subject: string, // constructed by caller
+  p: EnquiryPayload
+): Promise<boolean> => {
+  const transporter = createTransporter();
+  if (!transporter) {
+    // console.log("Email service not configured. Skipping enquiry email.");
+    return false;
+  }
+
+  const list = (arr?: string[]) => (arr && arr.length ? arr.join(", ") : "—");
+  const safe = (v?: string | null) => (v && String(v).trim().length ? v : "—");
+
+  const html = `
+    <!doctype html>
+    <html>
+      <head><meta charset="utf-8"></head>
+      <body style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#222">
+        <div style="max-width:680px;margin:0 auto;padding:16px">
+          <h2 style="margin:0 0 12px">New Services Enquiry</h2>
+          <p style="margin:0 0 16px;color:#555">Submitted: ${new Date(
+            p.submittedAt
+          ).toLocaleString()}</p>
+
+          <table cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%">
+            <tr><td style="border-bottom:1px solid #eee;width:180px"><strong>Name</strong></td><td style="border-bottom:1px solid #eee">${safe(
+              p.name
+            )}</td></tr>
+            <tr><td style="border-bottom:1px solid #eee"><strong>Email</strong></td><td style="border-bottom:1px solid #eee">${
+              p.email
+            }</td></tr>
+            <tr><td style="border-bottom:1px solid #eee"><strong>Company</strong></td><td style="border-bottom:1px solid #eee">${safe(
+              p.company
+            )}</td></tr>
+            <tr><td style="border-bottom:1px solid #eee"><strong>Service</strong></td><td style="border-bottom:1px solid #eee">${
+              safe(p.service) || "General"
+            }</td></tr>
+            <tr><td style="border-bottom:1px solid #eee"><strong>Focus</strong></td><td style="border-bottom:1px solid #eee">${list(
+              p.subservices
+            )}</td></tr>
+            <tr><td style="border-bottom:1px solid #eee"><strong>Source</strong></td><td style="border-bottom:1px solid #eee">${
+              safe(p.source) || "services-page"
+            }</td></tr>
+            <tr><td style="border-bottom:1px solid #eee;vertical-align:top"><strong>Message</strong></td>
+                <td style="border-bottom:1px solid #eee;white-space:pre-wrap">${(
+                  p.message || ""
+                ).replace(/</g, "&lt;")}</td></tr>
+          </table>
+
+          <p style="color:#888;margin-top:16px">IP: ${safe(p.ip)} • UA: ${safe(
+    p.ua
+  )}</p>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `New Services Enquiry
+Submitted: ${p.submittedAt}
+
+Name: ${safe(p.name)}
+Email: ${p.email}
+Company: ${safe(p.company)}
+Service: ${safe(p.service) || "General"}
+Focus: ${list(p.subservices)}
+Source: ${safe(p.source) || "services-page"}
+
+Message:
+${p.message || ""}
+
+IP: ${safe(p.ip)}
+UA: ${safe(p.ua)}
+`;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to,
+      subject,
+      html,
+      text,
+      replyTo: p.email, // lets you reply straight to the enquirer
+    });
+    // console.log(`Enquiry email sent to ${to} (from ${p.email})`);
+    return true;
+  } catch (error) {
+    console.error("Error sending enquiry email:", error);
+    return false;
+  }
+};
