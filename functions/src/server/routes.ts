@@ -1,0 +1,1010 @@
+import express, {
+  type Express,
+  Request,
+  Response,
+  NextFunction,
+} from "express";
+import { createServer, type Server } from "http";
+import { sendEnquiryEmail } from "./email";
+import { fetchEpisodesFromRSS, Episode } from "./rss";
+import { MongoStorage } from "./mongo-storage";
+import {
+  InsertUserSchema,
+  InsertEnrollmentSchema,
+  gradeSubmissionSchema,
+  InsertSubmissionSchema,
+  User,
+} from "../shared/schema";
+import { randomUUID } from "crypto";
+import {
+  generateVerificationToken,
+  sendVerificationEmail,
+  sendWelcomeEmail,
+} from "./email";
+import { z } from "zod";
+import { IStorage } from "./storage";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import os from "os";
+
+export async function registerRoutes(
+  app: Express,
+  storage: IStorage
+): Promise<void> {
+  // ==================================
+  // MIDDLEWARE - MOVED INSIDE THE FUNCTION
+  // ==================================
+
+  // Middleware to check if a user is authenticated
+  const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) {
+      return res
+        .status(401)
+        .json({ message: "Not authenticated. Please sign in." });
+    }
+    next();
+  };
+
+  // Middleware to check if a user is an admin - NOW HAS ACCESS TO storage
+  const isAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    const user = await storage.getUser(req.session.userId!); // Now storage is in scope
+    if (!user || !user.isAdmin) {
+      return res
+        .status(403)
+        .json({ message: "Forbidden. Admin access required." });
+    }
+    next();
+  };
+
+  // For Cloud Functions, use temp directory for file uploads
+  const tempDir = os.tmpdir();
+
+  // Blog data storage (in temp directory for Cloud Functions)
+  type Author = {
+    id: string;
+    name: string;
+    email: string;
+    bio: string;
+    avatar?: string;
+    socials?: Record<string, string>;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt?: string;
+  };
+
+  type BlogPost = {
+    id: string;
+    title: string;
+    slug: string;
+    content: string;
+    excerpt: string;
+    status: "draft" | "published";
+    authorId: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+
+  const DATA_DIR = path.join(tempDir, "blog-data");
+  const AUTHORS_PATH = path.join(DATA_DIR, "authors.json");
+  const POSTS_PATH = path.join(DATA_DIR, "posts.json");
+
+  function ensureDataFiles() {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(AUTHORS_PATH))
+      fs.writeFileSync(AUTHORS_PATH, "[]", "utf8");
+    if (!fs.existsSync(POSTS_PATH)) fs.writeFileSync(POSTS_PATH, "[]", "utf8");
+  }
+
+  function readJson<T>(filePath: string, fallback: T): T {
+    try {
+      const raw = fs.readFileSync(filePath, "utf8");
+      return JSON.parse(raw) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function writeJson(filePath: string, data: unknown) {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  }
+
+  ensureDataFiles();
+
+  // ==================================
+  // AUTH ROUTES
+  // ==================================
+
+  app.post("/api/auth/signup", async (req, res, next) => {
+    try {
+      const userData = InsertUserSchema.parse(req.body);
+      const existingUser = await storage.getUserByEmail(userData.email);
+      if (existingUser) {
+        return res
+          .status(409)
+          .json({ message: "An account with this email already exists." });
+      }
+
+      const verificationToken = generateVerificationToken();
+      const user = await storage.createUser(userData, verificationToken);
+      await sendVerificationEmail(user.email, user.name, verificationToken);
+
+      req.session.userId = user.id;
+      res.status(201).json({
+        user,
+        message: "Account created. Please check your email to verify.",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/signin", async (req, res, next) => {
+    try {
+      const { email } = req.body;
+      const user = await storage.getUserByEmail(email);
+
+      if (!user) {
+        return res
+          .status(404)
+          .json({ message: "Email not found. Please sign up first." });
+      }
+
+      if (!user.isVerified) {
+        return res.status(403).json({
+          message:
+            "Email not verified. Please check your inbox for a verification link.",
+        });
+      }
+
+      await storage.updateUserActivity(user.id);
+      req.session.userId = user.id;
+      res.json({ user });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/signout", isAuthenticated, (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: "Failed to sign out." });
+      }
+      res.json({ message: "Signed out successfully." });
+    });
+  });
+
+  app.get("/api/auth/me", isAuthenticated, async (req, res, next) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "User not found." });
+      }
+      res.json({ user });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/auth/verify", async (req, res, next) => {
+    try {
+      const { token } = req.query;
+      if (!token || typeof token !== "string") {
+        return res.status(400).send("Invalid verification token.");
+      }
+
+      const user = await storage.verifyUserByToken(token);
+      if (!user) {
+        return res
+          .status(400)
+          .send("Verification link is invalid or has expired.");
+      }
+
+      await sendWelcomeEmail(user.email, user.name);
+      res.send("Email verified successfully! You can now close this tab.");
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================================
+  // PUBLIC COURSE ROUTES
+  // ==================================
+
+  app.get("/api/courses", async (_req, res, next) => {
+    try {
+      const courses = await storage.getCourses();
+      res.json(courses);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/courses/:id", async (req, res, next) => {
+    try {
+      const course = await storage.getCourse(req.params.id);
+      if (!course) {
+        return res.status(404).json({ message: "Course not found." });
+      }
+      res.json(course);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/featured-content", async (_req, res, next) => {
+    try {
+      const rssUrl =
+        process.env.PODCAST_RSS_URL ||
+        "https://anchor.fm/s/fb317c4c/podcast/rss";
+      const episodes = await fetchEpisodesFromRSS(rssUrl);
+      episodes.sort((a, b) => +new Date(b.pubDate) - +new Date(a.pubDate));
+      const latest = episodes[0];
+
+      const featuredContent = {
+        recentPosts: [
+          {
+            id: "1",
+            title: "The Future of Human-AI Collaboration",
+            excerpt:
+              "Exploring how humans and AI can work together to achieve extraordinary results...",
+            publishedAt: new Date().toISOString(),
+            slug: "future-human-ai-collaboration",
+          },
+          {
+            id: "2",
+            title: "Building Trust in AI Systems",
+            excerpt:
+              "Key principles for developing AI systems that humans can trust and rely on...",
+            publishedAt: new Date(Date.now() - 86400000).toISOString(),
+            slug: "building-trust-ai-systems",
+          },
+        ],
+        latestPodcast: latest
+          ? {
+              id: latest.id,
+              title: latest.title,
+              description:
+                latest.description.length > 220
+                  ? latest.description.slice(0, 220) + "…"
+                  : latest.description,
+              embedUrl: latest.embedUrl || null,
+              audioUrl: latest.audioUrl || null,
+              publishedAt: latest.pubDate,
+            }
+          : null,
+        popularCourses: await storage.getCourses().then((courses) =>
+          courses.slice(0, 2).map((course) => ({
+            ...course,
+            enrollmentCount: Math.floor(Math.random() * 1000),
+          }))
+        ),
+      };
+
+      res.setHeader(
+        "Cache-Control",
+        "s-maxage=3600, stale-while-revalidate=300"
+      );
+      res.json(featuredContent);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Public: Podcast episodes from RSS
+  app.get("/api/podcast/episodes", async (_req, res, next) => {
+    try {
+      const rssUrl =
+        process.env.PODCAST_RSS_URL ||
+        "https://anchor.fm/s/fb317c4c/podcast/rss";
+      const episodes = await fetchEpisodesFromRSS(rssUrl);
+
+      // Sort newest first
+      episodes.sort((a, b) => +new Date(b.pubDate) - +new Date(a.pubDate));
+
+      // Cache (CDN/proxy) for 1 hour
+      res.setHeader(
+        "Cache-Control",
+        "s-maxage=3600, stale-while-revalidate=300"
+      );
+      res.json({ episodes });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Public: Get published blog posts
+  app.get("/api/public/blog/posts", async (_req, res, next) => {
+    try {
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      const publishedPosts = posts
+        .filter((p) => p.status === "published")
+        .map((p) => ({ ...p, publishedAt: p.createdAt })); // Add publishedAt
+
+      res.json(
+        publishedPosts.sort(
+          (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)
+        )
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Public: Get single published blog post by slug
+  app.get("/api/public/blog/posts/:slug", async (req, res, next) => {
+    try {
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      const post = posts.find(
+        (p) => p.slug === req.params.slug && p.status === "published"
+      );
+
+      if (!post) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+
+      const authors = readJson<Author[]>(AUTHORS_PATH, []);
+      const author = authors.find((a) => a.id === post.authorId);
+
+      const postWithAuthor = {
+        ...post,
+        html: post.content, // Assuming content is html
+        author: author ? { name: author.name } : undefined,
+        publishedAt: post.createdAt, // Add publishedAt
+      };
+
+      res.json(postWithAuthor);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Contact form submission
+  app.post("/api/contact", async (req, res, next) => {
+    try {
+      const {
+        name = "",
+        email,
+        company = "",
+        service = "",
+        subservices = [],
+        message,
+        source = "services-page",
+      } = req.body || {};
+
+      if (!email || !message) {
+        return res
+          .status(400)
+          .json({ message: "Email and message are required." });
+      }
+
+      // Build a useful subject
+      const subject = `[Enquiry] ${service || "General"} • ${
+        company || name || email
+      }`;
+
+      // Useful context for the inbox
+      const payload = {
+        submittedAt: new Date().toISOString(),
+        ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0] || req.ip,
+        ua: req.headers["user-agent"] || "",
+        name,
+        email,
+        company,
+        service,
+        subservices,
+        message,
+        source,
+      };
+
+      // Send email to support
+      await sendEnquiryEmail("support@humaninloop.ca", subject, payload);
+
+      // Keep the client copy simple per your direction
+      res.json({ message: "We'll get back to you." });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================================
+  // ADMIN ROUTES
+  // ==================================
+
+  const adminRouter = express.Router();
+
+  // Use admin middleware
+  adminRouter.use(isAuthenticated);
+  adminRouter.use(isAdmin);
+
+  // Admin: Courses
+  adminRouter.get("/courses", async (_req, res, next) => {
+    try {
+      const courses = await storage.getCourses();
+      res.json(courses);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  adminRouter.post("/courses", async (req, res, next) => {
+    try {
+      const course = await storage.createCourse(req.body);
+      res.status(201).json(course);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  adminRouter.put("/courses/:id", async (req, res, next) => {
+    try {
+      const updatedCourse = await storage.updateCourse(req.params.id, req.body);
+      if (!updatedCourse) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+      res.json(updatedCourse);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  adminRouter.delete("/courses/:id", async (req, res, next) => {
+    try {
+      const deleted = await storage.deleteCourse(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Course not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Users
+  adminRouter.get("/users", async (req, res, next) => {
+    try {
+      const { page = 1, limit = 10, search = "" } = req.query;
+      const result = await storage.getPaginatedUsers(
+        Number(page),
+        Number(limit),
+        search as string
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Submissions
+  adminRouter.get("/submissions", async (_req, res, next) => {
+    try {
+      const submissions = await storage.getAllSubmissions();
+      res.json(submissions);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  adminRouter.put("/submissions/:id/grade", async (req, res, next) => {
+    try {
+      const { grade, feedback } = req.body;
+      const gradedSubmission = await storage.gradeSubmission(
+        req.params.id,
+        { grade, feedback },
+        req.session.userId!
+      );
+      if (!gradedSubmission) {
+        return res.status(404).json({ message: "Submission not found" });
+      }
+      res.json(gradedSubmission);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Site Management
+  adminRouter.get("/stats", async (_req, res, next) => {
+    try {
+      // Use getPaginatedUsers instead of getAllUsers (which doesn't exist)
+      const [usersResult, courses, submissions] = await Promise.all([
+        storage.getPaginatedUsers(1, 1000, ""), // Get first 1000 users
+        storage.getCourses(),
+        storage.getAllSubmissions(),
+      ]);
+
+      const users = usersResult.items; // Use 'items' instead of 'users'
+
+      const stats = {
+        totalUsers: users.length,
+        totalCourses: courses.length,
+        totalSubmissions: submissions.length,
+        verifiedUsers: users.filter((u: User) => u.isVerified).length,
+        adminUsers: users.filter((u: User) => u.isAdmin).length,
+      };
+
+      res.json(stats);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Dashboard Overview (for AdminDashboard component)
+  adminRouter.get("/dashboard", async (_req, res, next) => {
+    try {
+      const [usersResult, courses, submissions] = await Promise.all([
+        storage.getPaginatedUsers(1, 1000, ""), // Get first 1000 users
+        storage.getCourses(),
+        storage.getAllSubmissions(),
+      ]);
+
+      const users = usersResult.items;
+
+      // Get recent activity
+      const recentUsers = users
+        .filter((u: User) => u.createdAt)
+        .sort(
+          (a: User, b: User) =>
+            new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+        )
+        .slice(0, 5);
+
+      const recentSubmissions = submissions
+        .filter((s) => s.submittedAt)
+        .sort(
+          (a, b) =>
+            new Date(b.submittedAt!).getTime() -
+            new Date(a.submittedAt!).getTime()
+        )
+        .slice(0, 5);
+
+      const dashboardData = {
+        stats: {
+          totalUsers: users.length,
+          totalCourses: courses.length,
+          totalSubmissions: submissions.length,
+          pendingSubmissions: submissions.filter((s) => !s.grade).length,
+          verifiedUsers: users.filter((u: User) => u.isVerified).length,
+          adminUsers: users.filter((u: User) => u.isAdmin).length,
+          recentEnrollments: users.filter((u: User) => {
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return u.createdAt && new Date(u.createdAt) > weekAgo;
+          }).length,
+        },
+        recentActivity: {
+          newUsers: recentUsers,
+          recentSubmissions: recentSubmissions,
+        },
+        courses: courses.map((course) => ({
+          ...course,
+          enrollmentCount: users.filter((user: any) => {
+            // Check if user has enrollments property and course enrollment
+            if (!user.enrollments || !Array.isArray(user.enrollments)) {
+              return false;
+            }
+            return user.enrollments.some(
+              (enrollment: any) => enrollment.courseId === course.id
+            );
+          }).length,
+        })),
+      };
+
+      res.json(dashboardData);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin: Dashboard stats specifically for the dashboard component
+  adminRouter.get("/dashboard/stats", async (_req, res, next) => {
+    try {
+      const [usersResult, courses, submissions] = await Promise.all([
+        storage.getPaginatedUsers(1, 1000, ""),
+        storage.getCourses(),
+        storage.getAllSubmissions(),
+      ]);
+
+      const users = usersResult.items;
+
+      // Mock blog data for now (replace with real blog storage when implemented)
+      const mockBlogPosts = [
+        {
+          id: "1",
+          title: "Getting Started with Human-AI Collaboration",
+          status: "published",
+          createdAt: new Date(Date.now() - 86400000).toISOString(),
+        },
+        {
+          id: "2",
+          title: "The Future of AI Ethics",
+          status: "draft",
+          createdAt: new Date(Date.now() - 172800000).toISOString(),
+        },
+      ];
+
+      // Calculate blog stats
+      const totalBlogPosts = mockBlogPosts.length;
+      const publishedPosts = mockBlogPosts.filter(
+        (post) => post.status === "published"
+      ).length;
+      const draftPosts = mockBlogPosts.filter(
+        (post) => post.status === "draft"
+      ).length;
+
+      // Calculate revenue (mock for now)
+      const totalRevenue = courses.reduce(
+        (sum, course) => sum + (course.price || 0),
+        0
+      );
+
+      // Get recent activity
+      const recentUsers = users
+        .filter((u: User) => u.createdAt)
+        .sort(
+          (a: User, b: User) =>
+            new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+        )
+        .slice(0, 5)
+        .map((user: User) => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt,
+        }));
+
+      const recentCourses = courses.slice(0, 5).map((course) => ({
+        id: course.id,
+        title: course.title,
+        category: course.category,
+        isPremium: course.isPremium,
+        createdAt: course.createdAt || new Date().toISOString(),
+      }));
+
+      const recentPosts = mockBlogPosts
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+        .slice(0, 5);
+
+      const stats = {
+        totalCourses: courses.length,
+        totalUsers: users.length,
+        totalRevenue: totalRevenue,
+        pendingVerifications: users.filter((u: User) => !u.isVerified).length,
+        totalBlogPosts,
+        publishedPosts,
+        draftPosts,
+        recentUsers,
+        recentCourses,
+        recentPosts,
+      };
+
+      res.json(stats);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================================
+  // BLOG: POSTS (file-backed CRUD)
+  // ==================================
+
+  // List posts
+  adminRouter.get("/blog/posts", async (_req, res, next) => {
+    try {
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      res.json(
+        posts.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get single post
+  adminRouter.get("/blog/posts/:id", async (req, res, next) => {
+    try {
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      const post = posts.find((p) => p.id === req.params.id);
+      if (!post) return res.status(404).json({ message: "Post not found" });
+      res.json(post);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Create post
+  adminRouter.post("/blog/posts", async (req, res, next) => {
+    try {
+      const { title, slug, content, excerpt, status, authorId } =
+        req.body as Partial<BlogPost>;
+
+      if (!title || !slug || !content || !status || !authorId) {
+        return res.status(400).json({
+          error:
+            "Missing required fields: title, slug, content, status, authorId",
+        });
+      }
+
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      const authors = readJson<Author[]>(AUTHORS_PATH, []);
+
+      if (!authors.find((a) => a.id === authorId)) {
+        return res.status(400).json({ error: "Invalid authorId" });
+      }
+
+      if (posts.some((p) => p.slug === slug)) {
+        return res.status(409).json({ error: "Slug already exists" });
+      }
+
+      const now = new Date().toISOString();
+      const newPost: BlogPost = {
+        id: randomUUID(),
+        title,
+        slug,
+        content,
+        excerpt:
+          excerpt && excerpt.trim().length
+            ? excerpt
+            : content.substring(0, 160) + "...",
+        status: status === "published" ? "published" : "draft",
+        authorId,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      posts.push(newPost);
+      writeJson(POSTS_PATH, posts);
+      res.status(201).json(newPost);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Update post
+  adminRouter.put("/blog/posts/:id", async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { title, slug, content, excerpt, status, authorId } =
+        req.body as Partial<BlogPost>;
+
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      const idx = posts.findIndex((p) => p.id === id);
+      if (idx === -1)
+        return res.status(404).json({ message: "Post not found" });
+
+      if (
+        slug &&
+        slug !== posts[idx].slug &&
+        posts.some((p) => p.slug === slug)
+      ) {
+        return res.status(409).json({ error: "Slug already exists" });
+      }
+
+      if (authorId) {
+        const authors = readJson<Author[]>(AUTHORS_PATH, []);
+        if (!authors.find((a) => a.id === authorId)) {
+          return res.status(400).json({ error: "Invalid authorId" });
+        }
+      }
+
+      const updated: BlogPost = {
+        ...posts[idx],
+        title: title ?? posts[idx].title,
+        slug: slug ?? posts[idx].slug,
+        content: content ?? posts[idx].content,
+        excerpt:
+          (excerpt && excerpt.trim().length ? excerpt : posts[idx].excerpt) ??
+          posts[idx].excerpt,
+        status:
+          status === "published" || status === "draft"
+            ? status
+            : posts[idx].status,
+        authorId: authorId ?? posts[idx].authorId,
+        updatedAt: new Date().toISOString(),
+      };
+
+      posts[idx] = updated;
+      writeJson(POSTS_PATH, posts);
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Delete post
+  adminRouter.delete("/blog/posts/:id", async (req, res, next) => {
+    try {
+      const posts = readJson<BlogPost[]>(POSTS_PATH, []);
+      const post = posts.find((p) => p.id === req.params.id);
+      if (!post) return res.status(404).json({ message: "Post not found" });
+
+      writeJson(
+        POSTS_PATH,
+        posts.filter((p) => p.id !== req.params.id)
+      );
+      res.json({ success: true, message: "Post deleted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================================
+  // BLOG: AUTHORS (file-backed CRUD)
+  // ==================================
+
+  // Configure multer for Cloud Functions (use temp directory)
+  const upload = multer({
+    storage: multer.memoryStorage(), // Use memory storage for Cloud Functions
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    fileFilter: (_req, file, cb) => {
+      const allowedTypes = /jpeg|jpg|png|gif|webp/;
+      const extname = allowedTypes.test(
+        path.extname(file.originalname).toLowerCase()
+      );
+      const mimetype = allowedTypes.test(file.mimetype);
+      if (mimetype && extname) cb(null, true);
+      else
+        cb(
+          new Error("Only image files (jpeg, jpg, png, gif, webp) are allowed!")
+        );
+    },
+  });
+
+  // Get all authors
+  adminRouter.get("/blog/authors", async (_req, res, next) => {
+    try {
+      const authors = readJson<Author[]>(AUTHORS_PATH, []);
+      res.json(authors);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get single author
+  adminRouter.get("/blog/authors/:id", async (req, res, next) => {
+    try {
+      const authors = readJson<Author[]>(AUTHORS_PATH, []);
+      const author = authors.find((a) => a.id === req.params.id);
+      if (!author) return res.status(404).json({ message: "Author not found" });
+      res.json(author);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Create new author with file upload
+  adminRouter.post(
+    "/blog/authors",
+    upload.single("avatar"),
+    async (req, res, next) => {
+      try {
+        const { name, email, bio, socials, isActive } = req.body;
+
+        if (!name || !email || !bio) {
+          return res
+            .status(400)
+            .json({ error: "Missing required fields: name, email, bio" });
+        }
+
+        const authors = readJson<Author[]>(AUTHORS_PATH, []);
+        const parsedSocials =
+          typeof socials === "string" && socials.trim().length
+            ? JSON.parse(socials)
+            : {};
+
+        const now = new Date().toISOString();
+        const newAuthor: Author = {
+          id: randomUUID(),
+          name,
+          email,
+          bio,
+          avatar: req.file ? `/uploads/authors/${req.file.filename}` : "",
+          socials: parsedSocials,
+          isActive: (isActive ?? "true").toString() !== "false",
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        authors.push(newAuthor);
+        writeJson(AUTHORS_PATH, authors);
+        res.status(201).json(newAuthor);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  // Update author with optional file upload
+  adminRouter.put(
+    "/blog/authors/:id",
+    upload.single("avatar"),
+    async (req, res, next) => {
+      try {
+        const { id } = req.params;
+        const { name, email, bio, socials, isActive, currentAvatar } = req.body;
+
+        if (!name || !email || !bio) {
+          return res
+            .status(400)
+            .json({ error: "Missing required fields: name, email, bio" });
+        }
+
+        const authors = readJson<Author[]>(AUTHORS_PATH, []);
+        const idx = authors.findIndex((a) => a.id === id);
+        if (idx === -1)
+          return res.status(404).json({ message: "Author not found" });
+
+        const parsedSocials =
+          typeof socials === "string" && socials.trim().length
+            ? JSON.parse(socials)
+            : authors[idx].socials || {};
+
+        const avatar = req.file
+          ? `/uploads/authors/${req.file.filename}`
+          : currentAvatar ?? authors[idx].avatar ?? "";
+
+        authors[idx] = {
+          ...authors[idx],
+          name,
+          email,
+          bio,
+          socials: parsedSocials,
+          isActive: (isActive ?? authors[idx].isActive).toString() !== "false",
+          avatar,
+          updatedAt: new Date().toISOString(),
+        };
+
+        writeJson(AUTHORS_PATH, authors);
+        res.json(authors[idx]);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  // Delete author
+  adminRouter.delete("/blog/authors/:id", async (req, res, next) => {
+    try {
+      const { id } = req.params;
+
+      const authors = readJson<Author[]>(AUTHORS_PATH, []);
+      const author = authors.find((a) => a.id === id);
+      if (!author) return res.status(404).json({ message: "Author not found" });
+
+      // Optional: remove avatar from disk if under /public/uploads/authors
+      if (author.avatar?.startsWith("/uploads/authors/")) {
+        const abs = path.resolve(`public${author.avatar}`);
+        if (fs.existsSync(abs)) {
+          try {
+            fs.unlinkSync(abs);
+          } catch {}
+        }
+      }
+
+      const nextAuthors = authors.filter((a) => a.id !== id);
+      writeJson(AUTHORS_PATH, nextAuthors);
+      res.json({ success: true, message: "Author deleted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Mount the admin router
+  app.use("/api/admin", adminRouter);
+
+  // Global Error Handler
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    console.error("An error occurred:", err);
+    // Handle Zod errors
+    if (err instanceof z.ZodError) {
+      return res
+        .status(400)
+        .json({ message: "Invalid input data", errors: err.errors });
+    }
+    res
+      .status(500)
+      .json({ message: err.message || "An internal server error occurred." });
+  });
+}

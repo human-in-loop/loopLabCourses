@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
@@ -8,14 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { User } from "@shared/schema"; // Corrected import
 
 export default function Auth() {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [unverifiedUser, setUnverifiedUser] = useState<{ email: string; name: string } | null>(null);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   // Check if user is already authenticated
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/me"],
     retry: false,
   });
@@ -43,22 +46,34 @@ export default function Auth() {
   });
 
   const signInMutation = useMutation({
-    mutationFn: async (data: { email: string }) => {
-      const response = await apiRequest("POST", "/api/auth/signin", data);
+    mutationFn: async (email: string) => {
+      const response = await apiRequest("POST", "/api/auth/signin", { email });
+      if (!response.ok) {
+        const error = await response.json();
+        throw error;
+      }
       return response.json();
     },
     onSuccess: (data) => {
+      // console.log("Signin successful:", data);
+
+      // Invalidate auth query to update the user state
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({
-        title: "Welcome back!",
-        description: "You have been signed in successfully.",
-      });
+
+      // Let the App component's useEffect handle the admin redirect
+      // Just navigate home, and the admin redirect will kick in if needed
       setLocation("/");
     },
     onError: (error: any) => {
+      console.error("Signin error:", error);
+      // Handle verification error specifically
+      if (error.needsVerification) {
+        setShowVerificationPrompt(true);
+        setUnverifiedUser({ email: error.email, name: error.name });
+      }
       toast({
         title: "Sign in failed",
-        description: error.message || "Please check your email and try again.",
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     },
@@ -67,11 +82,11 @@ export default function Auth() {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
+
     if (isSignUp) {
       const email = formData.get("email") as string;
       const name = formData.get("name") as string;
-      
+
       if (!email || !name) {
         toast({
           title: "Missing information",
@@ -80,11 +95,11 @@ export default function Auth() {
         });
         return;
       }
-      
+
       signUpMutation.mutate({ email, name });
     } else {
       const email = formData.get("email") as string;
-      
+
       if (!email) {
         toast({
           title: "Email required",
@@ -93,23 +108,54 @@ export default function Auth() {
         });
         return;
       }
-      
-      signInMutation.mutate({ email });
+
+      signInMutation.mutate(email);
     }
   };
 
-  // Redirect if already authenticated
-  if (user) {
-    setLocation("/");
-    return null;
-  }
+  const handleSignIn = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get("email") as string;
+
+    if (!email) {
+      toast({
+        title: "Email required",
+        description: "Please enter your email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    signInMutation.mutate(email);
+  };
+
+  // Only redirect to home if already logged in BEFORE attempting login
+  useEffect(() => {
+    // Only redirect on initial auth check, not after login
+    if (user && !signInMutation.isSuccess && !signUpMutation.isSuccess) {
+      // Check if admin, redirect appropriately
+      if (user.isAdmin) {
+        // console.log("Already logged in as admin, redirecting to admin dashboard");
+        setLocation("/admin");
+      } else {
+        // console.log("Already logged in as regular user, redirecting to home");
+        setLocation("/");
+      }
+    }
+  }, [user, signInMutation.isSuccess, signUpMutation.isSuccess, setLocation]);
+
+  // Add this code to catch navigation issues
+  window.addEventListener('popstate', () => {
+    // console.log('Navigation event occurred, current path:', window.location.pathname);
+  });
 
   return (
     <div className="min-h-screen pt-16 px-4 flex items-center justify-center">
       <div className="absolute inset-0 bg-gradient-to-br from-loop-purple/10 via-loop-dark to-loop-orange/10"></div>
       <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-loop-purple/20 rounded-full blur-3xl animate-float"></div>
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-loop-orange/10 rounded-full blur-3xl animate-float" style={{animationDelay: '-3s'}}></div>
-      
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-loop-orange/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '-3s' }}></div>
+
       <motion.div
         className="relative z-10 w-full max-w-md"
         initial={{ opacity: 0, y: 20 }}
@@ -122,13 +168,13 @@ export default function Auth() {
               {isSignUp ? "Join Loop Lab" : "Welcome Back"}
             </CardTitle>
             <p className="text-gray-300">
-              {isSignUp 
-                ? "Create an account to access premium courses" 
+              {isSignUp
+                ? "Create an account to access premium courses"
                 : "Sign in to continue your learning journey"
               }
             </p>
           </CardHeader>
-          
+
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -145,7 +191,7 @@ export default function Auth() {
                   data-testid="input-email"
                 />
               </div>
-              
+
               {isSignUp && (
                 <div>
                   <Label htmlFor="name" className="text-sm font-semibold text-gray-200">
@@ -162,7 +208,7 @@ export default function Auth() {
                   />
                 </div>
               )}
-              
+
               {isSignUp && (
                 <div className="flex items-center space-x-2">
                   <input
@@ -177,7 +223,7 @@ export default function Auth() {
                   </label>
                 </div>
               )}
-              
+
               <Button
                 type="submit"
                 className="w-full bg-gradient-to-r from-loop-purple to-loop-orange hover:shadow-lg transition-all duration-300"
@@ -190,7 +236,7 @@ export default function Auth() {
                 {isSignUp ? "Create Account" : "Sign In"}
               </Button>
             </form>
-            
+
             <div className="mt-6 text-center">
               <button
                 type="button"
@@ -198,8 +244,8 @@ export default function Auth() {
                 className="text-loop-purple hover:text-loop-orange transition-colors font-medium"
                 data-testid="button-toggle-mode"
               >
-                {isSignUp 
-                  ? "Already have an account? Sign in" 
+                {isSignUp
+                  ? "Already have an account? Sign in"
                   : "Don't have an account? Sign up"
                 }
               </button>
@@ -207,6 +253,62 @@ export default function Auth() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {showVerificationPrompt && unverifiedUser && (
+        <motion.div
+          className="mt-8 p-6 bg-yellow-500/10 border border-yellow-500/30 rounded-xl"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="flex items-start space-x-3">
+            <i className="fas fa-exclamation-triangle text-yellow-400 mt-1"></i>
+            <div className="flex-1">
+              <h3 className="font-semibold text-yellow-400 mb-2">Email Not Verified</h3>
+              <p className="text-sm text-gray-300 mb-4">
+                Hi {unverifiedUser.name}, your email ({unverifiedUser.email}) needs to be verified before you can sign in.
+              </p>
+              <Button
+                onClick={() => {
+                  // Add resend verification logic here
+                  fetch("/api/auth/resend-verification", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: unverifiedUser.email }),
+                  })
+                    .then(res => res.json())
+                    .then(data => {
+                      toast({
+                        title: "Verification email sent",
+                        description: data.message,
+                      });
+                    })
+                    .catch(() => {
+                      toast({
+                        title: "Error",
+                        description: "Failed to send verification email",
+                        variant: "destructive",
+                      });
+                    });
+                }}
+                variant="outline"
+                size="sm"
+                className="border-yellow-500 text-yellow-400 hover:bg-yellow-500/10"
+              >
+                Resend Verification Email
+              </Button>
+              <Button
+                onClick={() => setShowVerificationPrompt(false)}
+                variant="ghost"
+                size="sm"
+                className="ml-2 text-gray-400"
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }
+

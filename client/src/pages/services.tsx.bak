@@ -1,0 +1,557 @@
+import { useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+
+type ServiceKey = "marketing" | "web" | "aiBuild" | "events" | "research";
+
+type ServiceCategory = {
+    key: ServiceKey;
+    title: string;
+    tagline?: string;
+    items: string[];
+    prompts: string[];
+    accentBG: string; // gradient for blob
+    ring: string;     // ring color classes
+    icon: string;     // fontawesome icon
+};
+
+const SERVICE_CATEGORIES: ServiceCategory[] = [
+    {
+        key: "marketing",
+        title: "AI-Powered Marketing (strategy, not ad buying)",
+        tagline: "Strategy and systems that compound — not media buying.",
+        items: [
+            "Answer-Engine Optimization (AEO) & modern SEO",
+            "Creative kits for ads (headlines, angles, variants)",
+            "Content systems: briefs → drafts → publish",
+            "Analytics setup: GA4 & events, dashboards",
+            "Social campaign design & content calendars",
+        ],
+        prompts: [
+            "What would a 90-day AEO + SEO plan look like for us?",
+            "Can you audit our content workflow and suggest an AI-assisted system?",
+            "Best way to structure GA4 events for our funnel?",
+            "What creative angles should we test for {product}?",
+            "How should we plan a monthly social calendar around 3 core themes?",
+        ],
+        accentBG: "from-fuchsia-500/35 via-purple-500/25 to-sky-500/25",
+        ring: "ring-purple-400/30 hover:ring-purple-300/50",
+        icon: "fa-bullseye",
+    },
+    {
+        key: "web",
+        title: "Web Development & Design",
+        tagline: "Fast, accessible, and built for ranking + conversion.",
+        items: [
+            "High-performance marketing sites & landing pages",
+            "Design systems & component libraries",
+            "Headless CMS integrations",
+            "Accessibility (WCAG), Core Web Vitals, SEO tech",
+        ],
+        prompts: [
+            "What stack and architecture would you recommend for a high-performance marketing site?",
+            "How to migrate to a headless CMS with minimal downtime?",
+            "What’s the fastest path to pass Core Web Vitals on key pages?",
+            "Can you help us define a pragmatic design system?",
+        ],
+        accentBG: "from-sky-500/35 via-blue-500/25 to-indigo-500/25",
+        ring: "ring-sky-400/30 hover:ring-sky-300/50",
+        icon: "fa-globe",
+    },
+    {
+        key: "aiBuild",
+        title: "AI Consulting & Build",
+        tagline: "From discovery to production with guardrails.",
+        items: [
+            "Discovery & roadmapping",
+            "RAG systems, agents, data pipelines",
+            "Prototyping → Pilot → Production (MLOps)",
+            "Model-as-a-Service / SaaS builds",
+            "Full-stack integrations",
+        ],
+        prompts: [
+            "What’s the quickest way to validate a RAG use-case with our docs?",
+            "Could you outline a pilot → production plan (infra, evals, safety)?",
+            "How would you expose our model as a service with auth & quotas?",
+            "What data pipeline do we need to keep models fresh?",
+        ],
+        accentBG: "from-emerald-500/35 via-teal-500/25 to-green-500/25",
+        ring: "ring-emerald-400/30 hover:ring-emerald-300/50",
+        icon: "fa-robot",
+    },
+    {
+        key: "events",
+        title: "Event Hosting & Community",
+        tagline: "Run sharp, on-brand events that produce content assets.",
+        items: [
+            "Event strategy & run-of-show",
+            "Speaker curation, moderation, workshops",
+            "Production, recording, post-event content",
+        ],
+        prompts: [
+            "What would a run-of-show look like for a 60-min virtual event?",
+            "Can you propose speakers and a moderator for {topic}?",
+            "How do we turn an event into a month of content assets?",
+        ],
+        accentBG: "from-orange-500/35 via-amber-500/25 to-red-500/25",
+        ring: "ring-orange-400/30 hover:ring-orange-300/50",
+        icon: "fa-microphone",
+    },
+    {
+        key: "research",
+        title: "Research & Podcast Collaboration",
+        tagline: "Original insights and distribution with partners.",
+        items: [
+            "Research sprints & whitepapers",
+            "Interviews, guest episodes, cross-posting",
+            "Case studies & measurement",
+        ],
+        prompts: [
+            "What’s a lightweight plan for a 4-week research sprint?",
+            "Could we co-produce a podcast episode on {topic}?",
+            "How would you structure a credible case study (data + story)?",
+        ],
+        accentBG: "from-pink-500/35 via-rose-500/25 to-fuchsia-500/25",
+        ring: "ring-pink-400/30 hover:ring-pink-300/50",
+        icon: "fa-flask",
+    },
+];
+
+export default function Services() {
+    const { toast } = useToast();
+    const formRef = useRef<HTMLDivElement | null>(null);
+
+    // FORM STATE
+    const [selectedService, setSelectedService] = useState<ServiceKey | "">("");
+    const activeCategory = useMemo(
+        () => SERVICE_CATEGORIES.find((c) => c.key === selectedService),
+        [selectedService]
+    );
+
+    const [selectedItems, setSelectedItems] = useState<string[]>([]);
+    const toggleItem = (label: string) =>
+        setSelectedItems((cur) =>
+            cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]
+        );
+
+    const [formData, setFormData] = useState({
+        name: "",
+        email: "",
+        company: "",
+        message: "",
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handlePromptClick = (p: string) => {
+        const text = p.replace("{product}", "").replace("{topic}", "");
+        setFormData((f) => ({
+            ...f,
+            message: f.message ? `${f.message}\n\n${text}` : text,
+        }));
+    };
+
+    // COLLAPSE STATE (initially collapsed titles only)
+    const [openKey, setOpenKey] = useState<ServiceKey | null>(null);
+    const toggleOpen = (key: ServiceKey) =>
+        setOpenKey((k) => (k === key ? null : key));
+
+    const onPickService = (key: ServiceKey) => {
+        setSelectedService(key);
+        setOpenKey(key);
+        setSelectedItems([]);
+        // smooth scroll to form
+        requestAnimationFrame(() => {
+            formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!formData.email || !formData.message || !selectedService) {
+            toast({
+                title: "Missing info",
+                description:
+                    "Please add your email, pick a service, and write a quick note.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        setIsSubmitting(true);
+        try {
+            const payload = {
+                name: formData.name,
+                email: formData.email,
+                company: formData.company,
+                service: activeCategory?.title ?? "",
+                subservices: selectedItems,
+                message: formData.message,
+                source: "services-page",
+            };
+
+            const r = await fetch("/api/contact", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify(payload),
+            });
+
+            if (!r.ok) throw new Error("Failed to submit");
+
+            toast({
+                title: "Thanks — we’ve got it!",
+                description:
+                    "We’ll reply with a short plan, options, and (if useful) a quick scoping call.",
+            });
+
+            setFormData({ name: "", email: "", company: "", message: "" });
+            setSelectedService("");
+            setSelectedItems([]);
+        } catch {
+            toast({
+                title: "Something went wrong",
+                description: "Please try again, or email hello@humaninloop.ca.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="relative min-h-screen pt-20 px-4 bg-loop-dark text-white overflow-hidden">
+            {/* Subtle scene: grid + radial glow */}
+            <div aria-hidden className="pointer-events-none absolute inset-0 [background:radial-gradient(60rem_40rem_at_50%_-10rem,rgba(168,85,247,.12),transparent_60%)]" />
+            <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:linear-gradient(to_right,rgba(255,255,255,.2)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,.2)_1px,transparent_1px)] [background-size:40px_40px]" />
+
+            <div className="max-w-7xl mx-auto">
+                {/* Header */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="text-center mb-10"
+                >
+                    <h1 className="text-5xl font-extrabold tracking-tight mb-4">
+                        <span className="bg-gradient-to-r from-fuchsia-400 via-purple-400 to-sky-400 bg-clip-text text-transparent animate-[gradient_8s_ease_infinite] [background-size:200%_200%]">
+                            Services
+                        </span>
+                    </h1>
+                    <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto">
+                        Tap a card to reveal details. Pick one and send us a quick note —
+                        we’ll follow up with next steps (and a short scoping call if useful).
+                    </p>
+                </motion.div>
+
+                {/* Collapsible cards (titles only by default) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+                    {SERVICE_CATEGORIES.map((cat, i) => {
+                        const open = openKey === cat.key;
+                        const selected = selectedService === cat.key;
+                        return (
+                            <motion.div
+                                key={cat.key}
+                                initial={{ opacity: 0, y: 18 }}
+                                whileInView={{ opacity: 1, y: 0 }}
+                                viewport={{ once: true }}
+                                transition={{ duration: 0.45, delay: i * 0.05 }}
+                                className="relative"
+                            >
+                                {/* Liquid blob */}
+                                <motion.div
+                                    aria-hidden
+                                    className={`absolute -inset-2 -z-10 rounded-2xl blur-3xl bg-gradient-to-br ${cat.accentBG} opacity-0 group-hover:opacity-100 transition-opacity`}
+                                    animate={{
+                                        borderRadius: [
+                                            "32% 68% 63% 37% / 45% 35% 65% 55%",
+                                            "63% 37% 32% 68% / 54% 65% 35% 46%",
+                                            "45% 55% 63% 37% / 63% 37% 32% 68%",
+                                        ],
+                                    }}
+                                    transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+                                />
+
+                                <button
+                                    type="button"
+                                    onClick={() => toggleOpen(cat.key)}
+                                    className="group w-full text-left rounded-xl p-[1px] bg-white/5 hover:bg-white/10 transition-colors"
+                                >
+                                    <div
+                                        className={`rounded-[11px] bg-gray-800/70 backdrop-blur border ring-1 ${cat.ring} ${selected ? "border-white/20" : "border-white/10"
+                                            }`}
+                                    >
+                                        <Card className="bg-transparent border-0 shadow-none">
+                                            <CardHeader className="pb-3">
+                                                <CardTitle className="flex items-center gap-3 text-xl text-white">
+                                                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/5">
+                                                        <i className={`fas ${cat.icon} text-white/80`} />
+                                                    </span>
+                                                    <span className="flex-1">{cat.title}</span>
+                                                    <motion.i
+                                                        className={`fas fa-chevron-down text-white/70`}
+                                                        animate={{ rotate: open ? 180 : 0 }}
+                                                        transition={{ duration: 0.2 }}
+                                                    />
+                                                </CardTitle>
+                                                {open && cat.tagline && (
+                                                    <p className="text-sm text-gray-300 mt-1">{cat.tagline}</p>
+                                                )}
+                                            </CardHeader>
+
+                                            <AnimatePresence initial={false}>
+                                                {open && (
+                                                    <motion.div
+                                                        initial={{ height: 0, opacity: 0 }}
+                                                        animate={{ height: "auto", opacity: 1 }}
+                                                        exit={{ height: 0, opacity: 0 }}
+                                                        transition={{ duration: 0.25, ease: "easeInOut" }}
+                                                    >
+                                                        <CardContent className="pt-0 pb-5">
+                                                            <ul className="space-y-2 mb-4">
+                                                                {cat.items.map((it) => (
+                                                                    <li key={it} className="flex items-start text-gray-300 text-sm">
+                                                                        <i className="fas fa-check text-loop-purple mr-3 mt-0.5" />
+                                                                        <span>{it}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+
+                                                            <div className="flex flex-wrap gap-2 mb-4">
+                                                                {cat.prompts.map((p) => (
+                                                                    <button
+                                                                        key={p}
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handlePromptClick(p);
+                                                                            onPickService(cat.key);
+                                                                        }}
+                                                                        className="text-xs bg-gray-700/70 hover:bg-gray-600/70 border border-white/10 rounded-md px-2 py-1 text-gray-200"
+                                                                        title="Insert into message & select this service"
+                                                                    >
+                                                                        {p}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+
+                                                            <Button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    onPickService(cat.key);
+                                                                }}
+                                                                className="bg-gradient-to-r from-fuchsia-500 to-sky-500 hover:from-fuchsia-400 hover:to-sky-400"
+                                                            >
+                                                                Use this service
+                                                            </Button>
+                                                        </CardContent>
+                                                    </motion.div>
+                                                )}
+                                            </AnimatePresence>
+                                        </Card>
+                                    </div>
+                                </button>
+                            </motion.div>
+                        );
+                    })}
+                </div>
+
+                {/* Enquiry + Guide */}
+                <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: 0.1 }}
+                    className="grid grid-cols-1 lg:grid-cols-2 gap-10"
+                    ref={formRef}
+                >
+                    {/* Form */}
+                    <Card className="bg-gray-800/60 border-white/10 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]">
+                        <CardContent className="p-6 sm:p-8">
+                            <AnimatePresence>
+                                {isSubmitting && (
+                                    <motion.div
+                                        initial={{ width: "0%" }}
+                                        animate={{ width: "100%" }}
+                                        exit={{ width: "0%" }}
+                                        transition={{ duration: 1.2, ease: "easeInOut", repeat: Infinity }}
+                                        className="h-0.5 mb-6 rounded bg-gradient-to-r from-fuchsia-400 via-purple-400 to-sky-400"
+                                    />
+                                )}
+                            </AnimatePresence>
+
+                            <form onSubmit={handleSubmit} className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <Label htmlFor="name" className="text-gray-300">Name</Label>
+                                        <Input
+                                            id="name"
+                                            value={formData.name}
+                                            onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
+                                            className="bg-gray-700/70 border-white/10 text-white focus-visible:ring-0 focus-visible:border-white/30"
+                                            placeholder="Optional"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="email" className="text-gray-300">Email *</Label>
+                                        <Input
+                                            id="email"
+                                            type="email"
+                                            required
+                                            value={formData.email}
+                                            onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
+                                            className="bg-gray-700/70 border-white/10 text-white focus-visible:ring-0 focus-visible:border-white/30"
+                                            placeholder="you@company.com"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <Label htmlFor="company" className="text-gray-300">Company</Label>
+                                    <Input
+                                        id="company"
+                                        value={formData.company}
+                                        onChange={(e) => setFormData((f) => ({ ...f, company: e.target.value }))}
+                                        className="bg-gray-700/70 border-white/10 text-white focus-visible:ring-0 focus-visible:border-white/30"
+                                        placeholder="Optional"
+                                    />
+                                </div>
+
+                                <div>
+                                    <Label className="text-gray-300">Service *</Label>
+                                    <Select
+                                        value={selectedService}
+                                        onValueChange={(v) => {
+                                            setSelectedService(v as ServiceKey);
+                                            setSelectedItems([]);
+                                        }}
+                                    >
+                                        <SelectTrigger className="bg-gray-700/70 border-white/10 text-white">
+                                            <SelectValue placeholder="Choose what you’re exploring" />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-gray-800 border-white/10">
+                                            {SERVICE_CATEGORIES.map((c) => (
+                                                <SelectItem key={c.key} value={c.key} className="text-white">
+                                                    {c.title}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <AnimatePresence>
+                                    {activeCategory && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 6 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -6 }}
+                                            transition={{ duration: 0.2 }}
+                                        >
+                                            <Label className="text-gray-300">Focus (optional)</Label>
+                                            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {activeCategory.items.map((label) => (
+                                                    <label
+                                                        key={label}
+                                                        className="flex items-center gap-2 bg-gray-700/60 border border-white/10 rounded-md px-3 py-2 hover:bg-gray-700/80 transition"
+                                                    >
+                                                        <Checkbox
+                                                            checked={selectedItems.includes(label)}
+                                                            onCheckedChange={() => toggleItem(label)}
+                                                        />
+                                                        <span className="text-sm text-gray-200">{label}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                <div>
+                                    <Label htmlFor="message" className="text-gray-300">Your question / context *</Label>
+                                    <Textarea
+                                        id="message"
+                                        required
+                                        value={formData.message}
+                                        onChange={(e) => setFormData((f) => ({ ...f, message: e.target.value }))}
+                                        className="bg-gray-700/70 border-white/10 text-white min-h-[140px] focus-visible:ring-0 focus-visible:border-white/30"
+                                        placeholder={
+                                            activeCategory
+                                                ? `Tell us about your goals. For example: “${activeCategory.prompts[0]}”`
+                                                : "Tell us what you’re exploring, goals, constraints, timeline…"
+                                        }
+                                    />
+                                </div>
+
+                                <Button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className="w-full h-11 bg-gradient-to-r from-fuchsia-500 to-sky-500 hover:from-fuchsia-400 hover:to-sky-400 transition-all shadow-[0_8px_30px_-10px_rgba(168,85,247,0.4)]"
+                                >
+                                    {isSubmitting ? (
+                                        <span className="inline-flex items-center gap-2">
+                                            <i className="fas fa-circle-notch animate-spin" />
+                                            Sending…
+                                        </span>
+                                    ) : (
+                                        "Send enquiry"
+                                    )}
+                                </Button>
+
+                                <p className="text-xs text-gray-500 text-center">
+                                    We’ll respond with a short plan, options, and any gaps. If helpful,
+                                    we’ll propose a 15–20 min scoping call.
+                                </p>
+                            </form>
+                        </CardContent>
+                    </Card>
+
+                    {/* Guide card */}
+                    <Card className="bg-gray-800/60 border-white/10 lg:sticky lg:top-24 self-start">
+                        <CardContent className="p-6 sm:p-8 space-y-6">
+                            <h3 className="text-2xl font-semibold">
+                                <span className="bg-gradient-to-r from-fuchsia-400 to-sky-400 bg-clip-text text-transparent">
+                                    How we engage
+                                </span>
+                            </h3>
+                            <ul className="space-y-3 text-gray-300">
+                                <li className="flex gap-3">
+                                    <i className="fas fa-route text-loop-purple mt-1" />
+                                    <span><strong>Fast first pass.</strong> Short plan, options, any gaps.</span>
+                                </li>
+                                <li className="flex gap-3">
+                                    <i className="fas fa-calendar-check text-loop-accent mt-1" />
+                                    <span><strong>Quick scoping call (optional).</strong> 15–20 min.</span>
+                                </li>
+                                <li className="flex gap-3">
+                                    <i className="fas fa-layer-group text-green-400 mt-1" />
+                                    <span><strong>Right-sized engagement.</strong> 1–2 week sprint → partnership.</span>
+                                </li>
+                            </ul>
+
+                            <div className="border-t border-white/10 pt-6">
+                                <h4 className="font-semibold mb-2">What to include</h4>
+                                <ul className="list-disc list-inside text-sm text-gray-400 space-y-1">
+                                    <li>Goal &amp; audience</li>
+                                    <li>Key pages / assets / data sources (links welcome)</li>
+                                    <li>Timeline &amp; constraints</li>
+                                </ul>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            </div>
+        </div>
+    );
+}

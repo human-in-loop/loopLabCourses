@@ -1,0 +1,201 @@
+import { z } from "zod";
+import { ObjectId } from "mongodb";
+
+// Helper for ObjectId validation
+const objectIdSchema = z.string().refine((val) => ObjectId.isValid(val), {
+  message: "Invalid ObjectId",
+});
+
+// ==================================
+// USER
+// ==================================
+export const UserSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  email: z.string().email(),
+  name: z.string(),
+  isVerified: z.boolean().default(false),
+  isAdmin: z.boolean().default(false),
+  verificationToken: z.string().nullable().optional(),
+  verificationTokenExpiry: z.date().nullable().optional(),
+  lastActivity: z.date().optional(),
+  createdAt: z.date().optional(),
+});
+export type User = z.infer<typeof UserSchema>;
+
+export const InsertUserSchema = UserSchema.pick({
+  email: true,
+  name: true,
+});
+export type InsertUser = z.infer<typeof InsertUserSchema>;
+
+
+// ==================================
+// MODULE & LESSON
+// ==================================
+export const LessonSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  moduleId: z.string(),
+  title: z.string(),
+  type: z.enum(["video", "text", "quiz", "assignment", "podcast", "reading"]),
+  content: z.string().optional().nullable(),
+  videoUrl: z.string().url().optional().nullable(),
+  podcastUrl: z.string().url().optional().nullable(),
+  duration: z.string().optional().nullable(),
+  order: z.number().int().default(0),
+  isRequired: z.boolean().default(true),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+});
+export type Lesson = z.infer<typeof LessonSchema>;
+
+export const ModuleSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  courseId: z.string(),
+  title: z.string(),
+  description: z.string().optional().nullable(),
+  order: z.number().int().default(0),
+  lessons: z.array(LessonSchema).default([]), // Lessons are nested
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+});
+export type Module = z.infer<typeof ModuleSchema>;
+
+
+// ==================================
+// COURSE
+// ==================================
+export const CourseSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  instructor: z.string(),
+  duration: z.string(),
+  units: z.string(),
+  schedule: z.string(),
+  moodleUrl: z.string().url().optional().nullable(),
+  isPremium: z.boolean().default(false),
+  category: z.string(),
+  price: z.number().int().positive().optional().nullable(), // Price in cents
+  level: z.enum(["Beginner", "Intermediate", "Advanced"]).default("Beginner"),
+  thumbnail: z.string().optional().nullable(),
+  featured: z.boolean().default(false),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+  modules: z.array(ModuleSchema).default([]).optional(), // Now ModuleSchema is defined
+});
+export type Course = z.infer<typeof CourseSchema>;
+
+export const InsertCourseSchema = CourseSchema.omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertCourse = z.infer<typeof InsertCourseSchema>;
+
+
+// ==================================
+// ENROLLMENT
+// ==================================
+export const EnrollmentSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  userId: z.string(),
+  courseId: z.string(),
+  hasAccess: z.boolean().default(false),
+  enrolledAt: z.date(),
+  completedAt: z.date().optional().nullable(),
+  accessExpiresAt: z.date().optional().nullable(),
+  paymentId: z.string().optional().nullable(),
+  paidAmount: z.number().int().optional().nullable(),
+});
+export type Enrollment = z.infer<typeof EnrollmentSchema>;
+
+export const InsertEnrollmentSchema = EnrollmentSchema.pick({
+  userId: true,
+  courseId: true,
+});
+export type InsertEnrollment = z.infer<typeof InsertEnrollmentSchema>;
+
+
+// ==================================
+// SUBMISSION
+// ==================================
+export const SubmissionSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  userId: z.string(),
+  courseId: z.string(),
+  projectTitle: z.string(),
+  description: z.string(),
+  submittedAt: z.date(),
+  gradedAt: z.date().optional().nullable(),
+  grade: z.number().int().optional().nullable(),
+  feedback: z.string().optional().nullable(),
+  gradedBy: z.string().optional().nullable(), // User ID of admin
+});
+export type Submission = z.infer<typeof SubmissionSchema>;
+
+export const InsertSubmissionSchema = SubmissionSchema.pick({
+  userId: true,
+  courseId: true,
+  projectTitle: true,
+  description: true,
+});
+export type InsertSubmission = z.infer<typeof InsertSubmissionSchema>;
+
+
+// ==================================
+// LESSON PROGRESS
+// ==================================
+export const LessonProgressSchema = z.object({
+  _id: objectIdSchema.optional(),
+  id: z.string(),
+  userId: z.string(),
+  courseId: z.string(),
+  lessonId: z.string(),
+  completedAt: z.date(),
+});
+export type LessonProgress = z.infer<typeof LessonProgressSchema>;
+
+export const InsertLessonProgressSchema = LessonProgressSchema.pick({
+  userId: true,
+  courseId: true,
+  lessonId: true,
+});
+export type InsertLessonProgress = z.infer<typeof InsertLessonProgressSchema>;
+
+
+// ==================================
+// API-SPECIFIC ZOD SCHEMAS
+// ==================================
+export const gradeSubmissionSchema = z.object({
+  grade: z.number().min(0).max(100),
+  feedback: z.string().optional(),
+});
+export type GradeSubmission = z.infer<typeof gradeSubmissionSchema>;
+
+export const paymentInitiationSchema = z.object({
+  courseId: z.string(),
+});
+export type PaymentInitiation = z.infer<typeof paymentInitiationSchema>;
+
+export const paymentWebhookSchema = z.object({
+  transaction_id: z.string(),
+  order_id: z.string(),
+  result: z.string(),
+  amount: z.string(),
+  card_type: z.string().optional(),
+  response_code: z.string(),
+  iso_code: z.string(),
+  message: z.string(),
+});
+export type PaymentWebhook = z.infer<typeof paymentWebhookSchema>;
+
+export const courseCompletionSchema = z.object({
+  enrollmentId: z.string(),
+});
+export type CourseCompletion = z.infer<typeof courseCompletionSchema>;
